@@ -125,6 +125,7 @@ namespace AngryKoala.Pooling
                 IPoolableMono instance = _availableQueue.Dequeue();
                 instance.GetGameObject().SetActive(true);
                 instance.OnRequestedFromPool();
+                
                 return instance;
             }
 
