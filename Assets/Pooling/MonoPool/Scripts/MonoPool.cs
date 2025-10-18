@@ -19,6 +19,8 @@ namespace AngryKoala.Pooling
         [SerializeField] private Transform _container;
 
         private readonly Queue<IPoolableMono> _availableQueue = new();
+        private readonly HashSet<IPoolableMono> _active = new();
+        
         private int _totalCreatedCount;
         
         private IPoolService _poolService;
@@ -123,6 +125,8 @@ namespace AngryKoala.Pooling
             if (_availableQueue.Count > 0)
             {
                 IPoolableMono instance = _availableQueue.Dequeue();
+                
+                _active.Add(instance);
                 instance.GetGameObject().SetActive(true);
                 instance.OnRequestedFromPool();
                 
@@ -132,8 +136,10 @@ namespace AngryKoala.Pooling
             if (_totalCreatedCount < _maxSize)
             {
                 IPoolableMono newInstance = CreateNew();
+                
                 if (newInstance != null)
                 {
+                    _active.Add(newInstance);
                     newInstance.GetGameObject().SetActive(true);
                     newInstance.OnRequestedFromPool();
                 }
@@ -149,10 +155,37 @@ namespace AngryKoala.Pooling
         {
             ReturnInternal(instance);
         }
+        
+        public void ReturnAll()
+        {
+            List<IPoolableMono> snapshot = new List<IPoolableMono>(_active.Count);
+            
+            foreach (IPoolableMono item in _active)
+            {
+                snapshot.Add(item);
+            }
+
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                ReturnInternal(snapshot[i]);
+            }
+        }
 
         private void ReturnInternal(IPoolableMono instance)
         {
             if (instance == null)
+            {
+                return;
+            }
+            
+            GameObject go = instance.GetGameObject();
+            if (go == null)
+            {
+                _active.Remove(instance);
+                return;
+            }
+
+            if (!_active.Remove(instance))
             {
                 return;
             }
