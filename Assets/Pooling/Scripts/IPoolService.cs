@@ -9,6 +9,7 @@ namespace AngryKoala.Pooling
         IPoolableMono Get(string poolKey);
         
         void Return(IPoolableMono instance);
+        void Return(IPoolableMono instance, float delaySeconds);
         
         void RegisterMonoPool(MonoPool monoPool);
         void DeregisterMonoPool(MonoPool monoPool);

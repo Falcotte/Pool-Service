@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AngryKoala.Coroutines;
 using AngryKoala.Services;
 using UnityEngine;
 
@@ -9,6 +10,15 @@ namespace AngryKoala.Pooling
     public class PoolService : BaseService<IPoolService>, IPoolService
     {
         private readonly Dictionary<string, MonoPool> _monoPools = new(StringComparer.Ordinal);
+
+        private ICoroutineService _coroutineService;
+
+        protected override void Awake()
+        {
+            base.Awake();
+            
+            _coroutineService = ServiceLocator.Get<ICoroutineService>();
+        }
 
         public void RegisterMonoPool(MonoPool monoPool)
         {
@@ -96,6 +106,42 @@ namespace AngryKoala.Pooling
 
             Debug.LogWarning("Returning an instance without a valid pool. Destroying it.");
             Destroy(instance.GetGameObject());
+        }
+        
+        public void Return(IPoolableMono instance, float delaySeconds)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            if (delaySeconds <= 0f)
+            {
+                Return(instance);
+                return;
+            }
+
+            if (_coroutineService == null)
+            {
+                _coroutineService = ServiceLocator.Get<ICoroutineService>();
+            }
+
+            MonoPool owner = instance.GetPool();
+            
+            if (_coroutineService != null)
+            {
+                if (owner != null)
+                {
+                    _coroutineService.RunDelayed(owner, () => Return(instance), delaySeconds);
+                    return;
+                }
+
+                _coroutineService.RunDelayed(() => Return(instance), delaySeconds);
+                return;
+            }
+
+            Debug.LogWarning("CoroutineService was not found. Returning immediately.");
+            Return(instance);
         }
 
         #region Utility
