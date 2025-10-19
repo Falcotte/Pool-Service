@@ -148,7 +148,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: daf0f9bb753dea64692fc12a1b90f996, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _poolKey: RedCubePool
+  _poolKey: RedCube
   _prefab: {fileID: 7190254400157310700, guid: c78ddcfd3e211124494a4bc5ee638e80, type: 3}
   _initialSize: 20
   _maxSize: 50
@@ -732,7 +732,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: daf0f9bb753dea64692fc12a1b90f996, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _poolKey: BlueCubePool
+  _poolKey: BlueCube
   _prefab: {fileID: 4315554712217353135, guid: 40bb1e18da64f0c4ea1283eb2d2f6737, type: 3}
   _initialSize: 20
   _maxSize: 50

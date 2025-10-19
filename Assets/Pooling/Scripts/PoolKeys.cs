@@ -1,7 +1,3 @@
-namespace AngryKoala.Pooling
+public static partial class PoolKeys
 {
-    public static class PoolKeys
-    {
-
-    }
 }

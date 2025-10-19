@@ -45,7 +45,7 @@ namespace AngryKoala.Pooling
             _nextRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
         }
 
-        [MenuItem("Angry Koala/Pools/Pool Inspector")]
+        [MenuItem("Angry Koala/Pooling/Pool Inspector")]
         private static void Open()
         {
             PoolInspectorEditorWindow window = GetWindow<PoolInspectorEditorWindow>("Pool Inspector");
