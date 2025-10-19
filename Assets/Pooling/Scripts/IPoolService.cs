@@ -15,6 +15,7 @@ namespace AngryKoala.Pooling
         void RegisterMonoPool(MonoPool monoPool);
         void DeregisterMonoPool(MonoPool monoPool);
         
+        void RegisterObjectPool<T>(string poolKey, ObjectPool<T> pool) where T : class, IPoolable;
         void RegisterObjectPool<T>(string poolKey, Func<T> factory, int initialSize, int maxSize) where T : class, IPoolable;
         void DeregisterObjectPool(string poolKey);
         

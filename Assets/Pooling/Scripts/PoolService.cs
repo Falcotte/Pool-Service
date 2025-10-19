@@ -154,6 +154,20 @@ namespace AngryKoala.Pooling
         
         #region ObjectPool
 
+        public void RegisterObjectPool<T>(string poolKey, ObjectPool<T> pool) where T : class, IPoolable
+        {
+            if (string.IsNullOrEmpty(poolKey) || pool == null)
+            {
+                return;
+            }
+
+            if (!_objectPools.TryAdd(poolKey, pool))
+            {
+                Debug.LogWarning($"ObjectPool with key '{poolKey}' already exists.");
+                return;
+            }
+        }
+
         public void RegisterObjectPool<T>(string poolKey, Func<T> factory, int initialSize, int maxSize) where T : class, IPoolable
         {
             if (string.IsNullOrEmpty(poolKey))
