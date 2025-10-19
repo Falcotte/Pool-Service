@@ -8,7 +8,8 @@ namespace AngryKoala.Pooling
         private readonly Queue<T> _available = new();
         
         private readonly Func<T> _factory;
-        
+
+        private readonly int _initialSize;
         private readonly int _maxSize;
         private int _totalCreated;
         
@@ -33,8 +34,10 @@ namespace AngryKoala.Pooling
             {
                 initialSize = maxSize;
             }
-
+            
             _factory = factory;
+
+            _initialSize = initialSize;
             _maxSize = maxSize > 0 ? maxSize : int.MaxValue;
 
             WarmPool(initialSize);
