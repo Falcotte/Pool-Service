@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AngryKoala.Coroutines;
 using AngryKoala.Services;
 using UnityEngine;
 
@@ -20,10 +21,11 @@ namespace AngryKoala.Pooling
 
         private readonly Queue<IPoolableMono> _availableQueue = new();
         private readonly HashSet<IPoolableMono> _active = new();
-        
+
         private int _totalCreatedCount;
-        
+
         private IPoolService _poolService;
+        private ICoroutineService _coroutineService;
 
         private void Awake()
         {
@@ -33,14 +35,14 @@ namespace AngryKoala.Pooling
             }
 
             WarmPool();
-            TryRegisterWithService();
+            TryRegisterWithServices();
         }
 
         private void OnDestroy()
         {
             TryDeregisterFromService();
         }
-        
+
         private void WarmPool()
         {
             if (_prefab == null)
@@ -62,7 +64,7 @@ namespace AngryKoala.Pooling
                 _availableQueue.Enqueue(instance);
             }
         }
-        
+
         private IPoolableMono CreateNew()
         {
             try
@@ -86,19 +88,27 @@ namespace AngryKoala.Pooling
                 return null;
             }
         }
-        
-        private void TryRegisterWithService()
+
+        private void TryRegisterWithServices()
         {
             _poolService ??= ServiceLocator.Get<IPoolService>();
+            _coroutineService ??= ServiceLocator.Get<ICoroutineService>();
 
             if (_poolService != null)
             {
                 _poolService.RegisterMonoPool(this);
-                return;
+            }
+            else
+            {
+                Debug.LogWarning(
+                    $"MonoPool '{_poolKey}' could not find IPoolService. Ensure a PoolService is present in the scene.");
             }
 
-            Debug.LogWarning(
-                $"MonoPool '{_poolKey}' could not find IPoolService. Ensure a PoolService is present in the scene.");
+            if (_coroutineService == null)
+            {
+                Debug.LogWarning(
+                    $"MonoPool '{_poolKey}' could not find ICoroutineService. Ensure a CoroutineService is present in the scene.");
+            }
         }
 
         private void TryDeregisterFromService()
@@ -111,7 +121,7 @@ namespace AngryKoala.Pooling
         public T Get<T>() where T : Component, IPoolableMono
         {
             IPoolableMono instance = GetInternal();
-            
+
             return instance?.GetGameObject().GetComponent<T>();
         }
 
@@ -119,24 +129,24 @@ namespace AngryKoala.Pooling
         {
             return GetInternal();
         }
-        
+
         private IPoolableMono GetInternal()
         {
             if (_availableQueue.Count > 0)
             {
                 IPoolableMono instance = _availableQueue.Dequeue();
-                
+
                 _active.Add(instance);
                 instance.GetGameObject().SetActive(true);
                 instance.OnRequestedFromPool();
-                
+
                 return instance;
             }
 
             if (_totalCreatedCount < _maxSize)
             {
                 IPoolableMono newInstance = CreateNew();
-                
+
                 if (newInstance != null)
                 {
                     _active.Add(newInstance);
@@ -155,11 +165,33 @@ namespace AngryKoala.Pooling
         {
             ReturnInternal(instance);
         }
-        
+
+        public void Return(IPoolableMono instance, float delaySeconds)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            if (delaySeconds <= 0f)
+            {
+                Return(instance);
+                return;
+            }
+
+            if (_coroutineService != null)
+            {
+                _coroutineService.RunDelayed(this, () => Return(instance), delaySeconds);
+                return;
+            }
+
+            Return(instance);
+        }
+
         public void ReturnAll()
         {
             List<IPoolableMono> snapshot = new List<IPoolableMono>(_active.Count);
-            
+
             foreach (IPoolableMono item in _active)
             {
                 snapshot.Add(item);
@@ -170,6 +202,33 @@ namespace AngryKoala.Pooling
                 ReturnInternal(snapshot[i]);
             }
         }
+        
+        public void ReturnAll(float delaySeconds)
+        {
+            if (delaySeconds <= 0f)
+            {
+                ReturnAll();
+                return;
+            }
+
+            if (_coroutineService == null)
+            {
+                ReturnAll();
+                return;
+            }
+
+            List<IPoolableMono> snapshot = new List<IPoolableMono>(_active.Count);
+            foreach (IPoolableMono item in _active)
+            {
+                snapshot.Add(item);
+            }
+
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                IPoolableMono instance = snapshot[i];
+                _coroutineService.RunDelayed(this, () => Return(instance), delaySeconds);
+            }
+        }
 
         private void ReturnInternal(IPoolableMono instance)
         {
@@ -177,7 +236,7 @@ namespace AngryKoala.Pooling
             {
                 return;
             }
-            
+
             GameObject go = instance.GetGameObject();
             if (go == null)
             {
