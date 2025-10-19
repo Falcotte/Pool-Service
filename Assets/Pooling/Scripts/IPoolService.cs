@@ -1,3 +1,4 @@
+using System;
 using AngryKoala.Services;
 using UnityEngine;
 
@@ -13,5 +14,13 @@ namespace AngryKoala.Pooling
         
         void RegisterMonoPool(MonoPool monoPool);
         void DeregisterMonoPool(MonoPool monoPool);
+        
+        void RegisterObjectPool<T>(string poolKey, Func<T> factory, int initialSize, int maxSize) where T : class, IPoolable;
+        void DeregisterObjectPool(string poolKey);
+        
+        T GetObject<T>(string poolKey) where T : class, IPoolable;
+        
+        void ReturnObject(IPoolable instance);
+        void ReturnObject<T>(string poolKey, T instance) where T : class, IPoolable;
     }
 }
