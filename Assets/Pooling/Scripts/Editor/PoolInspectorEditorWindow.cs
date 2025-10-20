@@ -56,7 +56,10 @@ namespace AngryKoala.Pooling
 
         private void RefreshTargets()
         {
-            _poolService = ServiceLocator.Get<IPoolService>();
+            if (Application.isPlaying && _poolService == null)
+            {
+                _poolService = ServiceLocator.Get<IPoolService>();
+            }
 
             _monoPoolsDictionary = null;
             _objectPoolsDictionary = null;
@@ -318,6 +321,13 @@ namespace AngryKoala.Pooling
 
         private void DrawMonoPoolsPanel()
         {
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.HelpBox("The application must be in Play mode to inspect Mono Pools.",
+                    MessageType.Info);
+                return;
+            }
+            
             if (_poolService == null || _monoPoolsDictionary == null)
             {
                 EditorGUILayout.HelpBox("PoolService not found in the open scenes, or reflection failed.",
@@ -527,6 +537,13 @@ namespace AngryKoala.Pooling
 
         private void DrawObjectPoolsPanel()
         {
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.HelpBox("The application must be in Play mode to inspect Object Pools.",
+                    MessageType.Info);
+                return;
+            }
+            
             if (_poolService == null || _objectPoolsDictionary == null)
             {
                 EditorGUILayout.HelpBox("PoolService not found in the open scenes, or reflection failed.",
@@ -713,7 +730,7 @@ namespace AngryKoala.Pooling
 
             return fallback;
         }
-        
+
         private static bool ContainsSubstringIgnoreCase(string stringToSearch, string substring)
         {
             if (string.IsNullOrEmpty(substring))
