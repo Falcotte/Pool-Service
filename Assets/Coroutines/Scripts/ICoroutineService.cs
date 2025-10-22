@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using AngryKoala.Services;
 using UnityEngine;
 
@@ -20,7 +21,13 @@ namespace AngryKoala.Coroutines
         void Stop(Coroutine coroutine);
         
         void StopAll();
-        void StopAll(string tag);
         void StopAll(MonoBehaviour owner);
+        void StopAll(string tag);
+        
+        IReadOnlyList<CoroutineData> GetData();
+        IReadOnlyList<CoroutineData> GetData(MonoBehaviour owner);
+        IReadOnlyList<CoroutineData> GetData(string tag);
+        
+        int GetActiveCoroutineCount();
     }
 }
