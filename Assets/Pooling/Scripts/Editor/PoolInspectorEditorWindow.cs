@@ -28,7 +28,7 @@ namespace AngryKoala.Pooling
         private readonly Dictionary<string, bool> _monoPoolFoldoutStates = new(StringComparer.Ordinal);
         private readonly Dictionary<string, bool> _objectPoolFoldoutStates = new(StringComparer.Ordinal);
 
-        private const double AutoRefreshInterval = 0.5;
+        private const double AutoRefreshInterval = 0.1;
 
         private const string MonoPrefKeyPrefix = "PoolInspector.Mono.";
         private const string ObjectPrefKeyPrefix = "PoolInspector.Obj.";
@@ -273,7 +273,7 @@ namespace AngryKoala.Pooling
                     GUILayout.ExpandWidth(true),
                     GUILayout.Height(EditorGUIUtility.singleLineHeight));
 
-                GUILayout.Space(10);
+                GUILayout.Space(13);
 
                 EditorGUIUtility.labelWidth = previousLabelWidth;
             }
