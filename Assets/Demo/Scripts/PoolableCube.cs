@@ -4,14 +4,14 @@ using UnityEngine;
 public class PoolableCube : MonoBehaviour, IPoolableMono
 {
     [SerializeField] private Rigidbody _rigidbody;
-    
+
     private MonoPool _pool;
 
     public void OnRequestedFromPool()
     {
         _rigidbody.angularVelocity = Vector3.zero;
         _rigidbody.linearVelocity = Vector3.zero;
-        
+
         _pool.Return(this, 10f);
     }
 

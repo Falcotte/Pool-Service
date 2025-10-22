@@ -20,9 +20,15 @@ public class CubeSpawner : MonoBehaviour
     {
         if (_spawnTimer >= _spawnDelay)
         {
-            if (_cubeCounter % 2 == 0)
+            if (_cubeCounter % 3 == 0)
             {
                 PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.RedCube);
+                poolableCube.transform.position = Vector3.up * 18f;
+                poolableCube.transform.rotation = Quaternion.identity;
+            }
+            else if (_cubeCounter % 3 == 1)
+            {
+                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.GreenCube);
                 poolableCube.transform.position = Vector3.up * 18f;
                 poolableCube.transform.rotation = Quaternion.identity;
             }
