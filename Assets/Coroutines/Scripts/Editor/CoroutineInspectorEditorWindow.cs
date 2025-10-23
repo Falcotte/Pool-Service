@@ -479,10 +479,10 @@ namespace AngryKoala.Coroutines
             }
         }
 
-        private static bool ScrollbarVisible(int rowCount, float rowBoxHeight, float rowVSpace,
+        private static bool ScrollbarVisible(int rowCount, float rowBoxHeight, float rowVerticalSpacing,
             float viewportHeightAvailable)
         {
-            float perRow = rowBoxHeight + rowVSpace * 2f;
+            float perRow = rowBoxHeight + rowVerticalSpacing * 2f;
             float contentHeight = rowCount * perRow + 9f;
 
             return contentHeight > viewportHeightAvailable;
