@@ -39,27 +39,27 @@ namespace AngryKoala.Coroutines
         private Texture2D _headerDarkTexture;
         private Texture2D _headerLightTexture;
 
-        private const string AutoRefreshPref = "CoroutineInspector.AutoRefresh";
-        private const string SearchStringPref = "CoroutineInspector.Search";
-        private const string TagSearchStringPref = "CoroutineInspector.TagSearch";
-        private const string SortFieldPref = "CoroutineInspector.SortField";
-        private const string SortAscendingPref = "CoroutineInspector.SortAscending";
+        private const string _autoRefreshPref = "CoroutineInspector.AutoRefresh";
+        private const string _searchStringPref = "CoroutineInspector.Search";
+        private const string _tagSearchStringPref = "CoroutineInspector.TagSearch";
+        private const string _sortFieldPref = "CoroutineInspector.SortField";
+        private const string _sortAscendingPref = "CoroutineInspector.SortAscending";
 
-        private const double AutoRefreshInterval = 0.05f;
+        private const double _autoRefreshInterval = 0.05f;
 
-        private const float HeaderHeight = 26f;
-        private const float HeaderLabelLeftPad = 10f;
-        private const float HeaderSpacing = 2f;
+        private const float _headerHeight = 26f;
+        private const float _headerLabelLeftPad = 10f;
+        private const float _headerSpacing = 2f;
 
-        private const float FiltersInitialSpacing = 7f;
-        private const float FiltersVerticalSpacing = 6f;
+        private const float _filtersInitialSpacing = 7f;
+        private const float _filtersVerticalSpacing = 6f;
 
-        private const float RowVerticalSpacing = 2f;
-        private const float RowHeight = 28f;
-        private const float RowInnerPad = 4f;
-        private const float CellPadX = 6f;
-        private const float ActionsGap = 8f;
-        private const float HorizontalPadding = 12f;
+        private const float _rowVerticalSpacing = 2f;
+        private const float _rowHeight = 28f;
+        private const float _rowInnerPad = 4f;
+        private const float _cellPadX = 6f;
+        private const float _actionsGap = 8f;
+        private const float _horizontalPadding = 12f;
 
         private static GUIStyle _headerStyle;
         private static GUIStyle _backgroundStyle;
@@ -69,13 +69,13 @@ namespace AngryKoala.Coroutines
         {
             GetService();
 
-            _autoRefreshEnabled = EditorPrefs.GetBool(AutoRefreshPref, true);
-            _searchText = EditorPrefs.GetString(SearchStringPref, string.Empty);
-            _tagFilterText = EditorPrefs.GetString(TagSearchStringPref, string.Empty);
-            _sortField = (SortField)EditorPrefs.GetInt(SortFieldPref, (int)SortField.Owner);
-            _sortAscending = EditorPrefs.GetBool(SortAscendingPref, true);
+            _autoRefreshEnabled = EditorPrefs.GetBool(_autoRefreshPref, true);
+            _searchText = EditorPrefs.GetString(_searchStringPref, string.Empty);
+            _tagFilterText = EditorPrefs.GetString(_tagSearchStringPref, string.Empty);
+            _sortField = (SortField)EditorPrefs.GetInt(_sortFieldPref, (int)SortField.Owner);
+            _sortAscending = EditorPrefs.GetBool(_sortAscendingPref, true);
 
-            _nextAutoRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
+            _nextAutoRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
 
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
@@ -137,7 +137,7 @@ namespace AngryKoala.Coroutines
             if (now >= _nextAutoRefreshTime)
             {
                 Repaint();
-                _nextAutoRefreshTime = now + AutoRefreshInterval;
+                _nextAutoRefreshTime = now + _autoRefreshInterval;
             }
         }
 
@@ -174,7 +174,7 @@ namespace AngryKoala.Coroutines
                 return;
             }
 
-            GUILayout.Space(FiltersInitialSpacing);
+            GUILayout.Space(_filtersInitialSpacing);
             DrawFilters();
 
             IReadOnlyList<CoroutineData> rows = _service.GetData() ?? Array.Empty<CoroutineData>();
@@ -209,19 +209,19 @@ namespace AngryKoala.Coroutines
 
             rows = SortRows(rows, _sortField, _sortAscending).ToArray();
 
-            GUILayout.Space(HeaderSpacing);
+            GUILayout.Space(_headerSpacing);
 
             Rect headerOuter =
-                GUILayoutUtility.GetRect(0, HeaderHeight + RowInnerPad * 2f, GUILayout.ExpandWidth(true));
-            headerOuter.x += HorizontalPadding;
-            headerOuter.width -= HorizontalPadding * 2f;
+                GUILayoutUtility.GetRect(0, _headerHeight + _rowInnerPad * 2f, GUILayout.ExpandWidth(true));
+            headerOuter.x += _horizontalPadding;
+            headerOuter.width -= _horizontalPadding * 2f;
             GUI.Box(headerOuter, GUIContent.none, EditorStyles.helpBox);
 
             Rect headerInner = new Rect(
-                headerOuter.x + RowInnerPad,
-                headerOuter.y + RowInnerPad,
-                headerOuter.width - RowInnerPad * 2f,
-                HeaderHeight
+                headerOuter.x + _rowInnerPad,
+                headerOuter.y + _rowInnerPad,
+                headerOuter.width - _rowInnerPad * 2f,
+                _headerHeight
             );
 
             float toolbarHeight = EditorStyles.toolbar.fixedHeight > 0 ? EditorStyles.toolbar.fixedHeight : 18f;
@@ -231,13 +231,13 @@ namespace AngryKoala.Coroutines
             float filtersInnerHeight = singleLineHeight * 2f + verticalSpacing;
             int paddingTop = EditorStyles.helpBox.padding.top;
             int paddingBottom = EditorStyles.helpBox.padding.bottom;
-            float filtersTotalHeight = filtersInnerHeight + paddingTop + paddingBottom + FiltersVerticalSpacing;
+            float filtersTotalHeight = filtersInnerHeight + paddingTop + paddingBottom + _filtersVerticalSpacing;
 
-            float headerTotalHeight = HeaderHeight + RowInnerPad * 2f;
+            float headerTotalHeight = _headerHeight + _rowInnerPad * 2f;
             float blocksGap = 2f;
             float viewportHeight = position.height - toolbarHeight - filtersTotalHeight - headerTotalHeight - blocksGap;
 
-            bool scrollbarVisible = ScrollbarVisible(rows.Count, RowHeight, RowVerticalSpacing, viewportHeight);
+            bool scrollbarVisible = ScrollbarVisible(rows.Count, _rowHeight, _rowVerticalSpacing, viewportHeight);
 
             if (scrollbarVisible)
             {
@@ -252,7 +252,7 @@ namespace AngryKoala.Coroutines
             float actionsColumnWidth = headerInner.width - baseColumnWidth * 5f;
 
             DrawHeaders(headerInner, baseColumnWidth, actionsColumnWidth);
-            GUILayout.Space(RowVerticalSpacing);
+            GUILayout.Space(_rowVerticalSpacing);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll, false, false, GUILayout.ExpandWidth(true));
 
@@ -280,8 +280,8 @@ namespace AngryKoala.Coroutines
                 if (autoRefreshEnabled != _autoRefreshEnabled)
                 {
                     _autoRefreshEnabled = autoRefreshEnabled;
-                    EditorPrefs.SetBool(AutoRefreshPref, _autoRefreshEnabled);
-                    _nextAutoRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
+                    EditorPrefs.SetBool(_autoRefreshPref, _autoRefreshEnabled);
+                    _nextAutoRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
                 }
             }
         }
@@ -290,7 +290,7 @@ namespace AngryKoala.Coroutines
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                GUILayout.Space(HorizontalPadding);
+                GUILayout.Space(_horizontalPadding);
 
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
@@ -302,7 +302,7 @@ namespace AngryKoala.Coroutines
                         if (nextSearch != _searchText)
                         {
                             _searchText = nextSearch;
-                            EditorPrefs.SetString(SearchStringPref, _searchText);
+                            EditorPrefs.SetString(_searchStringPref, _searchText);
                         }
 
                         GUILayout.FlexibleSpace();
@@ -324,7 +324,7 @@ namespace AngryKoala.Coroutines
                         if (nextTag != _tagFilterText)
                         {
                             _tagFilterText = nextTag;
-                            EditorPrefs.SetString(TagSearchStringPref, _tagFilterText);
+                            EditorPrefs.SetString(_tagSearchStringPref, _tagFilterText);
                         }
 
                         GUILayout.FlexibleSpace();
@@ -336,7 +336,7 @@ namespace AngryKoala.Coroutines
                     }
                 }
 
-                GUILayout.Space(HorizontalPadding - 3);
+                GUILayout.Space(_horizontalPadding - 3);
             }
         }
 
@@ -439,8 +439,8 @@ namespace AngryKoala.Coroutines
             Rect actionsRect = new Rect(x, rect.y, actionsWidth, rect.height);
             GUI.DrawTexture(actionsRect, _headerLightTexture, ScaleMode.StretchToFill);
 
-            Rect actionsLabelRect = new Rect(actionsRect.x + HeaderLabelLeftPad, actionsRect.y,
-                actionsRect.width - HeaderLabelLeftPad, actionsRect.height);
+            Rect actionsLabelRect = new Rect(actionsRect.x + _headerLabelLeftPad, actionsRect.y,
+                actionsRect.width - _headerLabelLeftPad, actionsRect.height);
             GUI.Label(actionsLabelRect, "Actions", _headerStyle);
         }
 
@@ -448,7 +448,7 @@ namespace AngryKoala.Coroutines
         {
             GUI.DrawTexture(rect, bg, ScaleMode.StretchToFill);
 
-            Rect labelRect = new Rect(rect.x + HeaderLabelLeftPad, rect.y, rect.width - HeaderLabelLeftPad,
+            Rect labelRect = new Rect(rect.x + _headerLabelLeftPad, rect.y, rect.width - _headerLabelLeftPad,
                 rect.height);
             GUI.Label(labelRect, label, _headerStyle);
 
@@ -465,8 +465,8 @@ namespace AngryKoala.Coroutines
                     _sortAscending = true;
                 }
 
-                EditorPrefs.SetInt(SortFieldPref, (int)_sortField);
-                EditorPrefs.SetBool(SortAscendingPref, _sortAscending);
+                EditorPrefs.SetInt(_sortFieldPref, (int)_sortField);
+                EditorPrefs.SetBool(_sortAscendingPref, _sortAscending);
                 Event.current.Use();
             }
 
@@ -479,10 +479,10 @@ namespace AngryKoala.Coroutines
             }
         }
 
-        private static bool ScrollbarVisible(int rowCount, float rowBoxHeight, float rowVerticalSpacing,
+        private static bool ScrollbarVisible(int rowCount, float rowBoxHeight, float rowVSpace,
             float viewportHeightAvailable)
         {
-            float perRow = rowBoxHeight + rowVerticalSpacing * 2f;
+            float perRow = rowBoxHeight + rowVSpace * 2f;
             float contentHeight = rowCount * perRow + 9f;
 
             return contentHeight > viewportHeightAvailable;
@@ -491,43 +491,43 @@ namespace AngryKoala.Coroutines
         private void DrawRow(CoroutineData data, float columnWidth, float actionsWidth)
         {
             Rect reserved =
-                GUILayoutUtility.GetRect(0, RowHeight + RowVerticalSpacing * 2f, GUILayout.ExpandWidth(true));
+                GUILayoutUtility.GetRect(0, _rowHeight + _rowVerticalSpacing * 2f, GUILayout.ExpandWidth(true));
 
-            reserved.x += HorizontalPadding;
-            reserved.width -= HorizontalPadding * 2f;
+            reserved.x += _horizontalPadding;
+            reserved.width -= _horizontalPadding * 2f;
 
-            Rect outer = new Rect(reserved.x, reserved.y + RowVerticalSpacing, reserved.width, RowHeight);
+            Rect outer = new Rect(reserved.x, reserved.y + _rowVerticalSpacing, reserved.width, _rowHeight);
             GUI.Box(outer, GUIContent.none, EditorStyles.helpBox);
 
-            Rect inner = new Rect(outer.x + RowInnerPad, outer.y + RowInnerPad, outer.width - RowInnerPad * 2f,
-                outer.height - RowInnerPad * 2f);
+            Rect inner = new Rect(outer.x + _rowInnerPad, outer.y + _rowInnerPad, outer.width - _rowInnerPad * 2f,
+                outer.height - _rowInnerPad * 2f);
 
             float innerX = inner.x;
             float innerHeight = inner.height;
 
             DrawCellBackground(new Rect(innerX, inner.y, columnWidth, innerHeight), _darkTexture);
-            GUI.Label(new Rect(innerX + CellPadX, inner.y, columnWidth - CellPadX * 2f, innerHeight),
+            GUI.Label(new Rect(innerX + _cellPadX, inner.y, columnWidth - _cellPadX * 2f, innerHeight),
                 data.Owner != null ? data.Owner.name : "(no owner)", _backgroundStyle);
             innerX += columnWidth;
 
             DrawCellBackground(new Rect(innerX, inner.y, columnWidth, innerHeight), _lightTexture);
-            GUI.Label(new Rect(innerX + CellPadX, inner.y, columnWidth - CellPadX * 2f, innerHeight),
+            GUI.Label(new Rect(innerX + _cellPadX, inner.y, columnWidth - _cellPadX * 2f, innerHeight),
                 string.IsNullOrEmpty(data.Tag) ? "(untagged)" : data.Tag, _backgroundStyle);
             innerX += columnWidth;
 
             DrawCellBackground(new Rect(innerX, inner.y, columnWidth, innerHeight), _darkTexture);
-            GUI.Label(new Rect(innerX + CellPadX, inner.y, columnWidth - CellPadX * 2f, innerHeight),
+            GUI.Label(new Rect(innerX + _cellPadX, inner.y, columnWidth - _cellPadX * 2f, innerHeight),
                 string.IsNullOrEmpty(data.RoutineTypeName) ? "-" : data.RoutineTypeName, _backgroundStyle);
             innerX += columnWidth;
 
             DrawCellBackground(new Rect(innerX, inner.y, columnWidth, innerHeight), _lightTexture);
-            GUI.Label(new Rect(innerX + CellPadX, inner.y, columnWidth - CellPadX * 2f, innerHeight),
+            GUI.Label(new Rect(innerX + _cellPadX, inner.y, columnWidth - _cellPadX * 2f, innerHeight),
                 $"{data.ElapsedTime:F3}",
                 _backgroundStyle);
             innerX += columnWidth;
 
             DrawCellBackground(new Rect(innerX, inner.y, columnWidth, innerHeight), _darkTexture);
-            GUI.Label(new Rect(innerX + CellPadX, inner.y, columnWidth - CellPadX * 2f, innerHeight),
+            GUI.Label(new Rect(innerX + _cellPadX, inner.y, columnWidth - _cellPadX * 2f, innerHeight),
                 $"{data.ElapsedRealtime:F3}",
                 _backgroundStyle);
             innerX += columnWidth;
@@ -536,12 +536,12 @@ namespace AngryKoala.Coroutines
             DrawCellBackground(actions, _lightTexture);
 
             float pad = 6f;
-            float innerWidth = actions.width - pad * 2f - ActionsGap;
+            float innerWidth = actions.width - pad * 2f - _actionsGap;
             float buttonHeight = Mathf.Max(18f, innerHeight - 6f);
             float buttonY = actions.y + (innerHeight - buttonHeight) * 0.5f;
 
             Rect pingRect = new Rect(actions.x + pad, buttonY, innerWidth * 0.5f, buttonHeight);
-            Rect stopRect = new Rect(pingRect.xMax + ActionsGap, buttonY, innerWidth * 0.5f, buttonHeight);
+            Rect stopRect = new Rect(pingRect.xMax + _actionsGap, buttonY, innerWidth * 0.5f, buttonHeight);
 
             if (data.Owner != null && GUI.Button(pingRect, "Ping Owner", _miniButtonStyle))
             {
