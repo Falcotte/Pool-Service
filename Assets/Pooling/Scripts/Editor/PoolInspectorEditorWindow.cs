@@ -13,8 +13,8 @@ namespace AngryKoala.Pooling
     {
         private IPoolService _poolService;
 
-        private IDictionary _monoPoolsDictionary;
-        private IDictionary _objectPoolsDictionary;
+        private IDictionary _monoPoolByKey;
+        private IDictionary _objectPoolByKey;
 
         private bool _autoRefresh = true;
         private double _nextRefreshTime;
@@ -25,13 +25,13 @@ namespace AngryKoala.Pooling
         private Vector2 _leftScroll;
         private Vector2 _rightScroll;
 
-        private readonly Dictionary<string, bool> _monoPoolFoldoutStates = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, bool> _objectPoolFoldoutStates = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, bool> _monoPoolFoldoutStateByKey = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, bool> _objectPoolFoldoutStateByKey = new(StringComparer.Ordinal);
 
-        private const double AutoRefreshInterval = 0.1;
+        private const double _autoRefreshInterval = 0.1;
 
-        private const string MonoPrefKeyPrefix = "PoolInspector.Mono.";
-        private const string ObjectPrefKeyPrefix = "PoolInspector.Obj.";
+        private const string _monoPrefKeyPrefix = "PoolInspector.Mono.";
+        private const string _objectPrefKeyPrefix = "PoolInspector.Obj.";
 
         private static GUIStyle _headerStyle;
         private static GUIStyle _headerLabelStyle;
@@ -42,7 +42,7 @@ namespace AngryKoala.Pooling
             RefreshTargets();
             RestoreFoldoutPrefsForCurrentKeys();
 
-            _nextRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
+            _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
         }
 
         [MenuItem("Angry Koala/Pooling/Pool Inspector")]
@@ -61,8 +61,8 @@ namespace AngryKoala.Pooling
                 _poolService = ServiceLocator.Get<IPoolService>();
             }
 
-            _monoPoolsDictionary = null;
-            _objectPoolsDictionary = null;
+            _monoPoolByKey = null;
+            _objectPoolByKey = null;
 
             if (_poolService == null)
             {
@@ -72,39 +72,40 @@ namespace AngryKoala.Pooling
             try
             {
                 Type poolServiceType = typeof(PoolService);
-                FieldInfo monoPoolsFieldInfo =
-                    poolServiceType.GetField("_monoPools", BindingFlags.NonPublic | BindingFlags.Instance);
-                FieldInfo objectPoolsFieldInfo =
-                    poolServiceType.GetField("_objectPools", BindingFlags.NonPublic | BindingFlags.Instance);
 
-                _monoPoolsDictionary = monoPoolsFieldInfo?.GetValue(_poolService) as IDictionary;
-                _objectPoolsDictionary = objectPoolsFieldInfo?.GetValue(_poolService) as IDictionary;
+                FieldInfo monoPoolByKeyFieldInfo =
+                    poolServiceType.GetField("_monoPoolByKey", BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo objectPoolByKeyFieldInfo =
+                    poolServiceType.GetField("_objectPoolByKey", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                _monoPoolByKey = monoPoolByKeyFieldInfo?.GetValue(_poolService) as IDictionary;
+                _objectPoolByKey = objectPoolByKeyFieldInfo?.GetValue(_poolService) as IDictionary;
             }
             catch
             {
-                _monoPoolsDictionary = null;
-                _objectPoolsDictionary = null;
+                _monoPoolByKey = null;
+                _objectPoolByKey = null;
             }
         }
 
         private void RestoreFoldoutPrefsForCurrentKeys()
         {
-            _monoPoolFoldoutStates.Clear();
-            _objectPoolFoldoutStates.Clear();
+            _monoPoolFoldoutStateByKey.Clear();
+            _objectPoolFoldoutStateByKey.Clear();
 
-            if (_monoPoolsDictionary != null)
+            if (_monoPoolByKey != null)
             {
-                foreach (string key in _monoPoolsDictionary.Keys.Cast<string>())
+                foreach (string key in _monoPoolByKey.Keys.Cast<string>())
                 {
-                    _monoPoolFoldoutStates[key] = EditorPrefs.GetBool(MonoPrefKeyPrefix + key, false);
+                    _monoPoolFoldoutStateByKey[key] = EditorPrefs.GetBool(_monoPrefKeyPrefix + key, false);
                 }
             }
 
-            if (_objectPoolsDictionary != null)
+            if (_objectPoolByKey != null)
             {
-                foreach (string key in _objectPoolsDictionary.Keys.Cast<string>())
+                foreach (string key in _objectPoolByKey.Keys.Cast<string>())
                 {
-                    _objectPoolFoldoutStates[key] = EditorPrefs.GetBool(_objectPoolsDictionary + key, false);
+                    _objectPoolFoldoutStateByKey[key] = EditorPrefs.GetBool(_objectPoolByKey + key, false);
                 }
             }
         }
@@ -119,7 +120,7 @@ namespace AngryKoala.Pooling
             RefreshTargets();
             Repaint();
 
-            _nextRefreshTime = EditorApplication.timeSinceStartup + AutoRefreshInterval;
+            _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
         }
 
         private void OnGUI()
@@ -285,9 +286,9 @@ namespace AngryKoala.Pooling
         {
             if (isMono)
             {
-                if (_monoPoolsDictionary != null)
+                if (_monoPoolByKey != null)
                 {
-                    foreach (string key in _monoPoolsDictionary.Keys.Cast<string>())
+                    foreach (string key in _monoPoolByKey.Keys.Cast<string>())
                     {
                         SetPoolFoldoutState(true, key, state);
                     }
@@ -295,9 +296,9 @@ namespace AngryKoala.Pooling
             }
             else
             {
-                if (_objectPoolsDictionary != null)
+                if (_objectPoolByKey != null)
                 {
-                    foreach (string key in _objectPoolsDictionary.Keys.Cast<string>())
+                    foreach (string key in _objectPoolByKey.Keys.Cast<string>())
                     {
                         SetPoolFoldoutState(false, key, state);
                     }
@@ -309,13 +310,13 @@ namespace AngryKoala.Pooling
         {
             if (isMono)
             {
-                _monoPoolFoldoutStates[key] = expanded;
-                EditorPrefs.SetBool(MonoPrefKeyPrefix + key, expanded);
+                _monoPoolFoldoutStateByKey[key] = expanded;
+                EditorPrefs.SetBool(_monoPrefKeyPrefix + key, expanded);
             }
             else
             {
-                _objectPoolFoldoutStates[key] = expanded;
-                EditorPrefs.SetBool(ObjectPrefKeyPrefix + key, expanded);
+                _objectPoolFoldoutStateByKey[key] = expanded;
+                EditorPrefs.SetBool(_objectPrefKeyPrefix + key, expanded);
             }
         }
 
@@ -327,15 +328,15 @@ namespace AngryKoala.Pooling
                     MessageType.Info);
                 return;
             }
-            
-            if (_poolService == null || _monoPoolsDictionary == null)
+
+            if (_poolService == null || _monoPoolByKey == null)
             {
                 EditorGUILayout.HelpBox("PoolService not found in the open scenes, or reflection failed.",
                     MessageType.Warning);
                 return;
             }
 
-            string[] poolKeys = _monoPoolsDictionary.Keys.Cast<string>()
+            string[] poolKeys = _monoPoolByKey.Keys.Cast<string>()
                 .Where(poolKey => ContainsSubstringIgnoreCase(poolKey, _monoPoolSearchText))
                 .OrderBy(poolKey => poolKey, StringComparer.Ordinal)
                 .ToArray();
@@ -351,7 +352,7 @@ namespace AngryKoala.Pooling
                 for (int i = 0; i < poolKeys.Length; i++)
                 {
                     string key = poolKeys[i];
-                    MonoPool pool = _monoPoolsDictionary[key] as MonoPool;
+                    MonoPool pool = _monoPoolByKey[key] as MonoPool;
 
                     if (pool == null)
                     {
@@ -412,8 +413,8 @@ namespace AngryKoala.Pooling
                             int prevIndent = EditorGUI.indentLevel;
                             EditorGUI.indentLevel = 0;
 
-                            int available = GetPrivateCollectionCount(pool, "_availableQueue");
-                            int active = GetPrivateCollectionCount(pool, "_active");
+                            int available = GetPrivateCollectionCount(pool, "_availablePoolables");
+                            int active = GetPrivateCollectionCount(pool, "_activePoolables");
                             int totalCreated = GetPrivateInt(pool, "_totalCreatedCount");
                             int initialSize = GetPrivateInt(pool, "_initialSize");
                             int maxSize = GetPrivateInt(pool, "_maxSize");
@@ -513,24 +514,24 @@ namespace AngryKoala.Pooling
         {
             if (isMono)
             {
-                if (_monoPoolFoldoutStates.TryGetValue(key, out bool v))
+                if (_monoPoolFoldoutStateByKey.TryGetValue(key, out bool foldoutState))
                 {
-                    return v;
+                    return foldoutState;
                 }
 
-                bool storedPref = EditorPrefs.GetBool(MonoPrefKeyPrefix + key, false);
-                _monoPoolFoldoutStates[key] = storedPref;
+                bool storedPref = EditorPrefs.GetBool(_monoPrefKeyPrefix + key, false);
+                _monoPoolFoldoutStateByKey[key] = storedPref;
                 return storedPref;
             }
             else
             {
-                if (_objectPoolFoldoutStates.TryGetValue(key, out bool v))
+                if (_objectPoolFoldoutStateByKey.TryGetValue(key, out bool foldoutState))
                 {
-                    return v;
+                    return foldoutState;
                 }
 
-                bool storedPref = EditorPrefs.GetBool(ObjectPrefKeyPrefix + key, false);
-                _objectPoolFoldoutStates[key] = storedPref;
+                bool storedPref = EditorPrefs.GetBool(_objectPrefKeyPrefix + key, false);
+                _objectPoolFoldoutStateByKey[key] = storedPref;
                 return storedPref;
             }
         }
@@ -543,15 +544,15 @@ namespace AngryKoala.Pooling
                     MessageType.Info);
                 return;
             }
-            
-            if (_poolService == null || _objectPoolsDictionary == null)
+
+            if (_poolService == null || _objectPoolByKey == null)
             {
                 EditorGUILayout.HelpBox("PoolService not found in the open scenes, or reflection failed.",
                     MessageType.Warning);
                 return;
             }
 
-            string[] keys = _objectPoolsDictionary.Keys.Cast<string>()
+            string[] keys = _objectPoolByKey.Keys.Cast<string>()
                 .Where(poolKey => ContainsSubstringIgnoreCase(poolKey, _objectPoolSearchText))
                 .OrderBy(poolKey => poolKey, StringComparer.Ordinal)
                 .ToArray();
@@ -567,7 +568,7 @@ namespace AngryKoala.Pooling
                 for (int i = 0; i < keys.Length; i++)
                 {
                     string key = keys[i];
-                    object objectPool = _objectPoolsDictionary[key];
+                    object objectPool = _objectPoolByKey[key];
                     if (objectPool == null)
                     {
                         continue;

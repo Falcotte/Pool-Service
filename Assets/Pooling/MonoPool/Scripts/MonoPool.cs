@@ -9,9 +9,9 @@ namespace AngryKoala.Pooling
     [DefaultExecutionOrder(-999)]
     public sealed class MonoPool : MonoBehaviour
     {
+        [SerializeField] private string _poolKey;
         public string PoolKey => _poolKey;
 
-        [SerializeField] private string _poolKey;
         [SerializeField] private GameObject _prefab;
 
         [SerializeField] private int _initialSize;
@@ -19,8 +19,8 @@ namespace AngryKoala.Pooling
 
         [SerializeField] private Transform _container;
 
-        private readonly Queue<IPoolableMono> _availableQueue = new();
-        private readonly HashSet<IPoolableMono> _active = new();
+        private readonly Queue<IPoolableMono> _availablePoolables = new();
+        private readonly HashSet<IPoolableMono> _activePoolables = new();
 
         private int _totalCreatedCount;
 
@@ -47,7 +47,7 @@ namespace AngryKoala.Pooling
         {
             if (_prefab == null)
             {
-                Debug.LogWarning($"MonoPool '{_poolKey}' has no prefab assigned.");
+                Debug.LogWarning($"MonoPool {_poolKey} has no prefab assigned.");
                 return;
             }
 
@@ -61,7 +61,7 @@ namespace AngryKoala.Pooling
                 }
 
                 instance.GetGameObject().SetActive(false);
-                _availableQueue.Enqueue(instance);
+                _availablePoolables.Enqueue(instance);
             }
         }
 
@@ -73,7 +73,7 @@ namespace AngryKoala.Pooling
                 IPoolableMono poolable = go.GetComponent<IPoolableMono>();
                 if (poolable == null)
                 {
-                    Debug.LogError($"Prefab for pool '{_poolKey}' does not implement IPoolableMono.");
+                    Debug.LogError($"Prefab for pool {_poolKey} does not implement IPoolableMono.");
                     Destroy(go);
                     return null;
                 }
@@ -101,13 +101,13 @@ namespace AngryKoala.Pooling
             else
             {
                 Debug.LogWarning(
-                    $"MonoPool '{_poolKey}' could not find IPoolService. Ensure a PoolService is present in the scene.");
+                    $"MonoPool {_poolKey} could not find IPoolService. Ensure a PoolService is present in the scene.");
             }
 
             if (_coroutineService == null)
             {
                 Debug.LogWarning(
-                    $"MonoPool '{_poolKey}' could not find ICoroutineService. Ensure a CoroutineService is present in the scene.");
+                    $"MonoPool {_poolKey} could not find ICoroutineService. Ensure a CoroutineService is present in the scene.");
             }
         }
 
@@ -132,11 +132,11 @@ namespace AngryKoala.Pooling
 
         private IPoolableMono GetInternal()
         {
-            if (_availableQueue.Count > 0)
+            if (_availablePoolables.Count > 0)
             {
-                IPoolableMono instance = _availableQueue.Dequeue();
+                IPoolableMono instance = _availablePoolables.Dequeue();
 
-                _active.Add(instance);
+                _activePoolables.Add(instance);
                 instance.GetGameObject().SetActive(true);
                 instance.OnRequestedFromPool();
 
@@ -149,7 +149,7 @@ namespace AngryKoala.Pooling
 
                 if (newInstance != null)
                 {
-                    _active.Add(newInstance);
+                    _activePoolables.Add(newInstance);
                     newInstance.GetGameObject().SetActive(true);
                     newInstance.OnRequestedFromPool();
                 }
@@ -157,7 +157,7 @@ namespace AngryKoala.Pooling
                 return newInstance;
             }
 
-            Debug.LogWarning($"Pool '{_poolKey}' is exhausted (max {_maxSize}). Consider increasing its size.");
+            Debug.LogWarning($"Pool {_poolKey} is exhausted (max {_maxSize}). Consider increasing its size.");
             return null;
         }
 
@@ -190,9 +190,9 @@ namespace AngryKoala.Pooling
 
         public void ReturnAll()
         {
-            List<IPoolableMono> snapshot = new List<IPoolableMono>(_active.Count);
+            List<IPoolableMono> snapshot = new List<IPoolableMono>(_activePoolables.Count);
 
-            foreach (IPoolableMono item in _active)
+            foreach (IPoolableMono item in _activePoolables)
             {
                 snapshot.Add(item);
             }
@@ -217,8 +217,8 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            List<IPoolableMono> snapshot = new List<IPoolableMono>(_active.Count);
-            foreach (IPoolableMono item in _active)
+            List<IPoolableMono> snapshot = new List<IPoolableMono>(_activePoolables.Count);
+            foreach (IPoolableMono item in _activePoolables)
             {
                 snapshot.Add(item);
             }
@@ -240,11 +240,11 @@ namespace AngryKoala.Pooling
             GameObject go = instance.GetGameObject();
             if (go == null)
             {
-                _active.Remove(instance);
+                _activePoolables.Remove(instance);
                 return;
             }
 
-            if (!_active.Remove(instance))
+            if (!_activePoolables.Remove(instance))
             {
                 return;
             }
@@ -252,7 +252,8 @@ namespace AngryKoala.Pooling
             instance.OnReturnedToPool();
             instance.GetGameObject().SetActive(false);
             instance.GetGameObject().transform.SetParent(_container, false);
-            _availableQueue.Enqueue(instance);
+            
+            _availablePoolables.Enqueue(instance);
         }
     }
 }

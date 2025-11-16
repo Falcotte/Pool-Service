@@ -10,10 +10,10 @@ namespace AngryKoala.Pooling
     [DefaultExecutionOrder(-1000)]
     public class PoolService : BaseService<IPoolService>, IPoolService
     {
-        private readonly Dictionary<string, MonoPool> _monoPools = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, MonoPool> _monoPoolByKey = new(StringComparer.Ordinal);
 
-        private readonly Dictionary<string, IObjectPool> _objectPools = new(StringComparer.Ordinal);
-        private readonly Dictionary<IPoolable, IObjectPool> _objectOwners = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<string, IObjectPool> _objectPoolByKey = new(StringComparer.Ordinal);
+        private readonly Dictionary<IPoolable, IObjectPool> _objectPoolByPoolable = new(ReferenceEqualityComparer.Instance);
 
         private ICoroutineService _coroutineService;
 
@@ -40,7 +40,7 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            if (_monoPools.TryGetValue(key, out MonoPool existing))
+            if (_monoPoolByKey.TryGetValue(key, out MonoPool existing))
             {
                 if (existing == monoPool)
                 {
@@ -48,11 +48,11 @@ namespace AngryKoala.Pooling
                 }
 
                 Debug.LogWarning(
-                    $"A different MonoPool is already registered for key '{key}'. Ignoring duplicate.");
+                    $"A different MonoPool is already registered for key {key}. Ignoring duplicate.");
                 return;
             }
 
-            _monoPools.Add(key, monoPool);
+            _monoPoolByKey.Add(key, monoPool);
         }
 
         public void DeregisterMonoPool(MonoPool monoPool)
@@ -68,9 +68,9 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            if (_monoPools.TryGetValue(key, out MonoPool existing) && existing == monoPool)
+            if (_monoPoolByKey.TryGetValue(key, out MonoPool existing) && existing == monoPool)
             {
-                _monoPools.Remove(key);
+                _monoPoolByKey.Remove(key);
             }
         }
 
@@ -161,9 +161,9 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            if (!_objectPools.TryAdd(poolKey, pool))
+            if (!_objectPoolByKey.TryAdd(poolKey, pool))
             {
-                Debug.LogWarning($"ObjectPool with key '{poolKey}' already exists.");
+                Debug.LogWarning($"ObjectPool with key {poolKey} already exists.");
                 return;
             }
         }
@@ -178,18 +178,18 @@ namespace AngryKoala.Pooling
 
             if (factory == null)
             {
-                Debug.LogWarning($"Object pool '{poolKey}' factory is null.");
+                Debug.LogWarning($"Object pool {poolKey} factory is null.");
                 return;
             }
 
-            if (_objectPools.ContainsKey(poolKey))
+            if (_objectPoolByKey.ContainsKey(poolKey))
             {
-                Debug.LogWarning($"Object pool '{poolKey}' is already registered.");
+                Debug.LogWarning($"Object pool {poolKey} is already registered.");
                 return;
             }
 
             ObjectPool<T> pool = new ObjectPool<T>(factory, initialSize, maxSize);
-            _objectPools.Add(poolKey, pool);
+            _objectPoolByKey.Add(poolKey, pool);
         }
         
         public void DeregisterObjectPool(string poolKey)
@@ -199,10 +199,10 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            if (_objectPools.Remove(poolKey, out IObjectPool pool))
+            if (_objectPoolByKey.Remove(poolKey, out IObjectPool pool))
             {
                 List<IPoolable> toRemove = new List<IPoolable>();
-                foreach (KeyValuePair<IPoolable, IObjectPool> keyValuePair in _objectOwners)
+                foreach (KeyValuePair<IPoolable, IObjectPool> keyValuePair in _objectPoolByPoolable)
                 {
                     if (ReferenceEquals(keyValuePair.Value, pool))
                     {
@@ -212,7 +212,7 @@ namespace AngryKoala.Pooling
 
                 for (int i = 0; i < toRemove.Count; i++)
                 {
-                    _objectOwners.Remove(toRemove[i]);
+                    _objectPoolByPoolable.Remove(toRemove[i]);
                 }
             }
         }
@@ -231,7 +231,7 @@ namespace AngryKoala.Pooling
                 return null;
             }
 
-            _objectOwners[item] = pool;
+            _objectPoolByPoolable[item] = pool;
             return item as T;
         }
         
@@ -242,10 +242,10 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            if (_objectOwners.TryGetValue(instance, out IObjectPool pool))
+            if (_objectPoolByPoolable.TryGetValue(instance, out IObjectPool pool))
             {
                 pool.Return(instance);
-                _objectOwners.Remove(instance);
+                _objectPoolByPoolable.Remove(instance);
                 return;
             }
 
@@ -266,7 +266,7 @@ namespace AngryKoala.Pooling
             }
 
             pool.Return(instance);
-            _objectOwners.Remove(instance);
+            _objectPoolByPoolable.Remove(instance);
         }
         
         #endregion
@@ -281,12 +281,12 @@ namespace AngryKoala.Pooling
                 return null;
             }
 
-            if (_monoPools.TryGetValue(poolKey, out MonoPool pool))
+            if (_monoPoolByKey.TryGetValue(poolKey, out MonoPool pool))
             {
                 return pool;
             }
 
-            Debug.LogWarning($"No MonoPool found for key '{poolKey}'.");
+            Debug.LogWarning($"No MonoPool found for key {poolKey}.");
             return null;
         }
 
@@ -298,12 +298,12 @@ namespace AngryKoala.Pooling
                 return null;
             }
 
-            if (_objectPools.TryGetValue(poolKey, out IObjectPool pool))
+            if (_objectPoolByKey.TryGetValue(poolKey, out IObjectPool pool))
             {
                 return pool;
             }
 
-            Debug.LogWarning($"No ObjectPool found for key '{poolKey}'.");
+            Debug.LogWarning($"No ObjectPool found for key {poolKey}.");
             return null;
         }
 
