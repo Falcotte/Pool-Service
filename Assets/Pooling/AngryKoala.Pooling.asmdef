@@ -2,9 +2,7 @@
     "name": "AngryKoala.Pooling",
     "rootNamespace": "AngryKoala.Pooling",
     "references": [
-        "AngryKoala.Coroutines",
-        "AngryKoala.Services",
-        "AngryKoala.Utilities"
+        "AngryKoala.Services"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
