@@ -12,12 +12,15 @@ namespace AngryKoala.Pooling
 
         [SerializeField] private int _prewarmPerFrame = 8;
 
+        internal int TrackedInstanceCount => _instanceByGameObject.Count;
+
         private readonly Dictionary<GameObject, PrefabPool> _poolByPrefab = new();
         private readonly List<PrefabPool> _pools = new();
         private readonly Dictionary<GameObject, PooledInstance> _instanceByGameObject = new();
         private readonly List<PooledInstance> _pendingReturns = new();
 
         private Transform _staging;
+        private bool _isDestroyed;
 
         private const string _stagingName = "Staging";
         private const string _poolNameSuffix = " Pool";
@@ -51,6 +54,11 @@ namespace AngryKoala.Pooling
 
         public void Return(Component instance)
         {
+            if (_isDestroyed)
+            {
+                return;
+            }
+
             if (!TryFindInUseInstance(instance, out PooledInstance pooledInstance))
             {
                 return;
@@ -61,6 +69,11 @@ namespace AngryKoala.Pooling
 
         public void Return(Component instance, float delaySeconds)
         {
+            if (_isDestroyed)
+            {
+                return;
+            }
+
             if (delaySeconds <= 0f)
             {
                 Return(instance);
@@ -84,7 +97,7 @@ namespace AngryKoala.Pooling
 
         public void ReturnAll(Component prefab)
         {
-            if (prefab == null)
+            if (_isDestroyed || prefab == null)
             {
                 return;
             }
@@ -97,6 +110,11 @@ namespace AngryKoala.Pooling
 
         public void ReturnAll()
         {
+            if (_isDestroyed)
+            {
+                return;
+            }
+
             for (int i = 0; i < _pools.Count; i++)
             {
                 _pools[i].ReturnAll();
@@ -107,11 +125,21 @@ namespace AngryKoala.Pooling
         {
             ValidatePrefab(prefab);
 
+            if (_isDestroyed)
+            {
+                return;
+            }
+
             GetOrCreatePool(prefab.gameObject, prefab).Prewarm(count);
         }
 
         public IEnumerator PrewarmAll(Action<float> onProgress = null)
         {
+            if (_isDestroyed)
+            {
+                yield break;
+            }
+
             List<PrefabPool> creations = CollectPrewarmCreations();
 
             if (creations.Count == 0)
@@ -123,21 +151,27 @@ namespace AngryKoala.Pooling
             onProgress?.Invoke(0f);
 
             int batchSize = Mathf.Max(1, _prewarmPerFrame);
-            int createdCount = 0;
+            int processedCount = 0;
 
-            while (createdCount < creations.Count)
+            while (processedCount < creations.Count)
             {
-                int batchEnd = Mathf.Min(createdCount + batchSize, creations.Count);
-
-                while (createdCount < batchEnd)
+                if (_isDestroyed)
                 {
-                    creations[createdCount].CreateWaiting();
-                    createdCount++;
+                    yield break;
                 }
 
-                onProgress?.Invoke((float)createdCount / creations.Count);
+                int batchEnd = Mathf.Min(processedCount + batchSize, creations.Count);
 
-                if (createdCount < creations.Count)
+                while (processedCount < batchEnd)
+                {
+                    PrefabPool pool = creations[processedCount];
+                    pool.TryCreateWaiting(pool.PrewarmCount);
+                    processedCount++;
+                }
+
+                onProgress?.Invoke((float)processedCount / creations.Count);
+
+                if (processedCount < creations.Count)
                 {
                     yield return null;
                 }
@@ -152,6 +186,11 @@ namespace AngryKoala.Pooling
             }
 
             results.Clear();
+
+            if (_isDestroyed)
+            {
+                return;
+            }
 
             for (int i = 0; i < _pools.Count; i++)
             {
@@ -169,10 +208,21 @@ namespace AngryKoala.Pooling
             _settings.Add(settings);
         }
 
+        internal void SetPrewarmPerFrame(int prewarmPerFrame)
+        {
+            _prewarmPerFrame = prewarmPerFrame;
+        }
+
         #region Internal Methods
 
         private T GetInternal<T>(T prefab, Vector3 position, Quaternion rotation, Transform parent) where T : Component
         {
+            if (_isDestroyed)
+            {
+                Debug.LogWarning($"Cannot get {prefab.name}: the pool service was destroyed.");
+                return null;
+            }
+
             PrefabPool pool = GetOrCreatePool(prefab.gameObject, prefab);
             PooledInstance instance = pool.Acquire(position, rotation, parent);
 
@@ -181,15 +231,30 @@ namespace AngryKoala.Pooling
                 return null;
             }
 
-            if (instance.Component is T cachedComponent)
+            if (TryResolveComponent(instance, out T component))
             {
-                return cachedComponent;
+                return component;
             }
 
-            return instance.GameObject.TryGetComponent(out T component) ? component : null;
+            pool.Release(instance);
+            Debug.LogError($"Cannot get a {typeof(T).Name} from a pooled instance of {prefab.name}: " +
+                           "the instance has no such component.", prefab);
+
+            return null;
         }
 
         #endregion
+
+        private static bool TryResolveComponent<T>(PooledInstance instance, out T component) where T : Component
+        {
+            if (instance.Component != null && instance.Component is T cachedComponent)
+            {
+                component = cachedComponent;
+                return true;
+            }
+
+            return instance.GameObject.TryGetComponent(out component);
+        }
 
         private static void ValidatePrefab(Component prefab)
         {
@@ -391,6 +456,18 @@ namespace AngryKoala.Pooling
 
                 pooledInstance.HasPendingReturn = false;
             }
+        }
+
+        protected override void OnDestroy()
+        {
+            base.OnDestroy();
+
+            _isDestroyed = true;
+
+            _pendingReturns.Clear();
+            _pools.Clear();
+            _poolByPrefab.Clear();
+            _instanceByGameObject.Clear();
         }
     }
 }

@@ -21,6 +21,11 @@ namespace AngryKoala.Pooling
 
         private Type _componentType;
         private bool _hasWarnedAboutMaximum;
+        private int _pruneThreshold = _minimumPruneThreshold;
+        private int _lastPrunedTotalCount = -1;
+        private int _lastPrunedFrame = -1;
+
+        private const int _minimumPruneThreshold = 32;
 
         private int TotalCount => _inUse.Count + _waiting.Count;
 
@@ -67,24 +72,16 @@ namespace AngryKoala.Pooling
 
             if (instance == null)
             {
-                GameObject gameObject = Object.Instantiate(Prefab, position, rotation, parent);
-                instance = Register(gameObject);
-
-                BeginUse(instance);
-            }
-            else
-            {
-                BeginUse(instance);
-
-                Transform instanceTransform = instance.GameObject.transform;
-                instanceTransform.SetParent(parent, false);
-                instanceTransform.SetPositionAndRotation(position, rotation);
+                instance = CreateStaged();
             }
 
-            if (!instance.GameObject.activeSelf)
-            {
-                instance.GameObject.SetActive(true);
-            }
+            BeginUse(instance);
+            EnsureComponent(instance);
+
+            Transform instanceTransform = instance.GameObject.transform;
+            instanceTransform.SetParent(parent, false);
+            instanceTransform.SetPositionAndRotation(position, rotation);
+            instance.GameObject.SetActive(true);
 
             InvokeRequested(instance);
 
@@ -130,7 +127,7 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            List<PooledInstance> snapshot = new(_inUse.Count);
+            var snapshot = new List<PooledInstance>(_inUse.Count);
             for (LinkedListNode<PooledInstance> node = _inUse.First; node != null; node = node.Next)
             {
                 snapshot.Add(node.Value);
@@ -159,19 +156,26 @@ namespace AngryKoala.Pooling
             int missingCount = GetMissingCount(count);
             for (int i = 0; i < missingCount; i++)
             {
-                CreateWaiting();
+                if (!TryCreateWaiting(count))
+                {
+                    return;
+                }
             }
         }
 
-        public void CreateWaiting()
+        public bool TryCreateWaiting(int targetCount)
         {
-            GameObject gameObject = Object.Instantiate(Prefab, _staging);
-            gameObject.SetActive(false);
+            if (GetMissingCount(targetCount) <= 0)
+            {
+                return false;
+            }
 
-            PooledInstance instance = Register(gameObject);
+            PooledInstance instance = CreateStaged();
 
-            gameObject.transform.SetParent(_container, false);
+            instance.GameObject.transform.SetParent(_container, false);
             _waiting.Add(instance);
+
+            return true;
         }
 
         public PoolData CreateData()
@@ -181,12 +185,30 @@ namespace AngryKoala.Pooling
             return new PoolData(Prefab, _inUse.Count, _waiting.Count, MaximumSize, ExhaustionRule);
         }
 
+        private PooledInstance CreateStaged()
+        {
+            GameObject gameObject = Object.Instantiate(Prefab, _staging);
+            gameObject.SetActive(false);
+
+            return Register(gameObject);
+        }
+
+        private void EnsureComponent(PooledInstance instance)
+        {
+            if (_componentType == null || instance.Component != null)
+            {
+                return;
+            }
+
+            instance.Component = instance.GameObject.GetComponent(_componentType);
+        }
+
         private PooledInstance Register(GameObject gameObject)
         {
             Component component = _componentType != null ? gameObject.GetComponent(_componentType) : null;
             IPoolable[] poolables = gameObject.GetComponentsInChildren<IPoolable>(true);
 
-            PooledInstance instance = new(this, gameObject, component, poolables);
+            var instance = new PooledInstance(this, gameObject, component, poolables);
             _registry[gameObject] = instance;
 
             return instance;
@@ -224,7 +246,10 @@ namespace AngryKoala.Pooling
                 return false;
             }
 
-            PruneDestroyed();
+            if (TotalCount != _lastPrunedTotalCount || Time.frameCount != _lastPrunedFrame)
+            {
+                PruneDestroyed();
+            }
 
             return TotalCount >= MaximumSize;
         }
@@ -233,8 +258,14 @@ namespace AngryKoala.Pooling
         {
             instance.IsInUse = true;
             instance.UseId++;
+            instance.RequestedCallbackCount = 0;
             instance.HasPendingReturn = false;
             _inUse.AddLast(instance.Node);
+
+            if (_inUse.Count >= _pruneThreshold)
+            {
+                PruneDestroyed();
+            }
         }
 
         private void PruneDestroyed()
@@ -266,6 +297,10 @@ namespace AngryKoala.Pooling
                     _registry.Remove(instance.GameObject);
                 }
             }
+
+            _pruneThreshold = Mathf.Max(_minimumPruneThreshold, _inUse.Count * 2);
+            _lastPrunedTotalCount = TotalCount;
+            _lastPrunedFrame = Time.frameCount;
         }
 
         private void WarnAboutMaximum()
@@ -291,6 +326,13 @@ namespace AngryKoala.Pooling
                     return;
                 }
 
+                instance.RequestedCallbackCount = i + 1;
+
+                if (IsDestroyed(instance.Poolables[i]))
+                {
+                    continue;
+                }
+
                 try
                 {
                     instance.Poolables[i].OnRequestedFromPool();
@@ -304,8 +346,15 @@ namespace AngryKoala.Pooling
 
         private static void InvokeReturned(PooledInstance instance)
         {
-            for (int i = 0; i < instance.Poolables.Length; i++)
+            int callbackCount = instance.RequestedCallbackCount;
+
+            for (int i = 0; i < callbackCount; i++)
             {
+                if (IsDestroyed(instance.Poolables[i]))
+                {
+                    continue;
+                }
+
                 try
                 {
                     instance.Poolables[i].OnReturnedToPool();
@@ -315,6 +364,11 @@ namespace AngryKoala.Pooling
                     LogCallbackFailure(nameof(IPoolable.OnReturnedToPool), instance, exception);
                 }
             }
+        }
+
+        private static bool IsDestroyed(IPoolable poolable)
+        {
+            return poolable is Object unityObject && unityObject == null;
         }
 
         private static void LogCallbackFailure(string callbackName, PooledInstance instance, Exception exception)

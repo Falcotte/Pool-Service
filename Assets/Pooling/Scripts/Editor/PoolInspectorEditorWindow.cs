@@ -17,28 +17,27 @@ namespace AngryKoala.Pooling
 
         private Vector2 _scroll;
 
-        private readonly List<PoolData> _rows = new();
+        private readonly List<PoolData> _poolData = new();
+        private readonly List<RowEntry> _rows = new();
         private readonly float[] _columnWidths = new float[_columnCount];
 
-        private Comparison<PoolData> _rowComparison;
+        private Comparison<RowEntry> _rowComparison;
 
         private SortField _sortField;
         private bool _sortAscending;
-
-        private enum SortField
-        {
-            Prefab,
-            InUse,
-            Waiting,
-            Total,
-            Maximum,
-            Rule
-        }
 
         private int _poolCount;
         private int _totalInUse;
         private int _totalWaiting;
         private string _summaryText = string.Empty;
+
+        private static GUIStyle _headerStyle;
+        private static GUIStyle _cellStyle;
+        private static GUIStyle _prefabButtonStyle;
+        private static GUIStyle _miniButtonStyle;
+
+        private static GUIContent _ascendingArrowContent;
+        private static GUIContent _descendingArrowContent;
 
         private const string _autoRefreshPref = "PoolInspector.AutoRefresh";
         private const string _searchStringPref = "PoolInspector.Search";
@@ -56,7 +55,7 @@ namespace AngryKoala.Pooling
                                                  _actionsColumnWeight;
 
         private const float _headerHeight = 26f;
-        private const float _headerLabelLeftPad = 10f;
+        private const float _headerLabelLeftPadding = 10f;
         private const float _headerSpacing = 2f;
 
         private const float _searchInitialSpacing = 7f;
@@ -64,30 +63,46 @@ namespace AngryKoala.Pooling
 
         private const float _rowVerticalSpacing = 2f;
         private const float _rowHeight = 28f;
-        private const float _rowInnerPad = 4f;
-        private const float _cellPadX = 6f;
-        private const float _actionsPad = 6f;
+        private const float _rowInnerPadding = 4f;
+        private const float _cellPaddingX = 6f;
+        private const float _actionsPadding = 6f;
         private const float _horizontalPadding = 12f;
         private const float _blocksGap = 2f;
         private const float _defaultToolbarHeight = 18f;
         private const float _minimumButtonHeight = 18f;
         private const float _buttonVerticalInset = 6f;
-        private const float _arrowRightPad = 6f;
+        private const float _arrowRightPadding = 6f;
         private const float _scrollContentExtraHeight = 9f;
 
         private const string _missingPrefabLabel = "(missing prefab)";
         private const string _noMaximumLabel = "None";
 
-        private static GUIStyle _headerStyle;
-        private static GUIStyle _cellStyle;
-        private static GUIStyle _prefabButtonStyle;
-        private static GUIStyle _miniButtonStyle;
+        private static readonly Color _darkColor = new(0.18f, 0.18f, 0.18f, 1f);
+        private static readonly Color _lightColor = new(0.26f, 0.26f, 0.26f, 1f);
 
-        private static GUIContent _ascendingArrowContent;
-        private static GUIContent _descendingArrowContent;
+        private enum SortField
+        {
+            Prefab,
+            InUse,
+            Waiting,
+            Total,
+            Maximum,
+            Rule
+        }
 
-        private static Texture2D _darkTexture;
-        private static Texture2D _lightTexture;
+        private readonly struct RowEntry
+        {
+            public PoolData Data { get; }
+            public string PrefabName { get; }
+            public EntityId PrefabEntityId { get; }
+
+            public RowEntry(PoolData data)
+            {
+                Data = data;
+                PrefabName = data.Prefab != null ? data.Prefab.name : string.Empty;
+                PrefabEntityId = data.Prefab != null ? data.Prefab.GetEntityId() : EntityId.None;
+            }
+        }
 
         private void OnEnable()
         {
@@ -204,15 +219,15 @@ namespace AngryKoala.Pooling
             GUILayout.Space(_headerSpacing);
 
             Rect headerOuter =
-                GUILayoutUtility.GetRect(0, _headerHeight + _rowInnerPad * 2f, GUILayout.ExpandWidth(true));
+                GUILayoutUtility.GetRect(0, _headerHeight + _rowInnerPadding * 2f, GUILayout.ExpandWidth(true));
             headerOuter.x += _horizontalPadding;
             headerOuter.width -= _horizontalPadding * 2f;
             GUI.Box(headerOuter, GUIContent.none, EditorStyles.helpBox);
 
-            Rect headerInner = new Rect(
-                headerOuter.x + _rowInnerPad,
-                headerOuter.y + _rowInnerPad,
-                headerOuter.width - _rowInnerPad * 2f,
+            var headerInner = new Rect(
+                headerOuter.x + _rowInnerPadding,
+                headerOuter.y + _rowInnerPadding,
+                headerOuter.width - _rowInnerPadding * 2f,
                 _headerHeight
             );
 
@@ -221,7 +236,7 @@ namespace AngryKoala.Pooling
                 : _defaultToolbarHeight;
             float searchTotalHeight = EditorGUIUtility.singleLineHeight + EditorStyles.helpBox.padding.top +
                                       EditorStyles.helpBox.padding.bottom + _searchVerticalSpacing;
-            float headerTotalHeight = _headerHeight + _rowInnerPad * 2f;
+            float headerTotalHeight = _headerHeight + _rowInnerPadding * 2f;
             float footerHeight = toolbarHeight;
             float viewportHeight = position.height - toolbarHeight - searchTotalHeight - headerTotalHeight -
                                    footerHeight - _blocksGap;
@@ -242,7 +257,7 @@ namespace AngryKoala.Pooling
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll, false, false, GUILayout.ExpandWidth(true));
 
-            foreach (PoolData row in _rows)
+            foreach (RowEntry row in _rows)
             {
                 DrawRow(row);
             }
@@ -320,7 +335,13 @@ namespace AngryKoala.Pooling
 
         private void RefreshRows()
         {
-            _service.GetData(_rows);
+            _service.GetData(_poolData);
+
+            _rows.Clear();
+            foreach (PoolData data in _poolData)
+            {
+                _rows.Add(new RowEntry(data));
+            }
 
             UpdateSummary();
             FilterRows();
@@ -332,10 +353,10 @@ namespace AngryKoala.Pooling
             int totalInUse = 0;
             int totalWaiting = 0;
 
-            foreach (PoolData row in _rows)
+            foreach (RowEntry row in _rows)
             {
-                totalInUse += row.InUseCount;
-                totalWaiting += row.WaitingCount;
+                totalInUse += row.Data.InUseCount;
+                totalWaiting += row.Data.WaitingCount;
             }
 
             if (_rows.Count == _poolCount && totalInUse == _totalInUse && totalWaiting == _totalWaiting)
@@ -358,24 +379,27 @@ namespace AngryKoala.Pooling
 
             for (int i = _rows.Count - 1; i >= 0; i--)
             {
-                if (!Contains(GetPrefabName(_rows[i]), _searchText))
+                if (!Contains(_rows[i].PrefabName, _searchText))
                 {
                     _rows.RemoveAt(i);
                 }
             }
         }
 
-        private int CompareRows(PoolData left, PoolData right)
+        private int CompareRows(RowEntry left, RowEntry right)
         {
+            PoolData leftData = left.Data;
+            PoolData rightData = right.Data;
+
             int result = _sortField switch
             {
-                SortField.Prefab => string.Compare(GetPrefabName(left), GetPrefabName(right),
+                SortField.Prefab => string.Compare(left.PrefabName, right.PrefabName,
                     StringComparison.OrdinalIgnoreCase),
-                SortField.InUse => left.InUseCount.CompareTo(right.InUseCount),
-                SortField.Waiting => left.WaitingCount.CompareTo(right.WaitingCount),
-                SortField.Total => GetTotalCount(left).CompareTo(GetTotalCount(right)),
-                SortField.Maximum => GetMaximumSortValue(left).CompareTo(GetMaximumSortValue(right)),
-                SortField.Rule => left.ExhaustionRule.CompareTo(right.ExhaustionRule),
+                SortField.InUse => leftData.InUseCount.CompareTo(rightData.InUseCount),
+                SortField.Waiting => leftData.WaitingCount.CompareTo(rightData.WaitingCount),
+                SortField.Total => GetTotalCount(leftData).CompareTo(GetTotalCount(rightData)),
+                SortField.Maximum => GetMaximumSortValue(leftData).CompareTo(GetMaximumSortValue(rightData)),
+                SortField.Rule => leftData.ExhaustionRule.CompareTo(rightData.ExhaustionRule),
                 _ => 0
             };
 
@@ -384,10 +408,10 @@ namespace AngryKoala.Pooling
                 return _sortAscending ? result : -result;
             }
 
-            result = string.Compare(GetPrefabName(left), GetPrefabName(right), StringComparison.OrdinalIgnoreCase);
+            result = string.Compare(left.PrefabName, right.PrefabName, StringComparison.OrdinalIgnoreCase);
             if (result == 0)
             {
-                result = GetPrefabEntityId(left).CompareTo(GetPrefabEntityId(right));
+                result = left.PrefabEntityId.CompareTo(right.PrefabEntityId);
             }
 
             return result;
@@ -420,26 +444,26 @@ namespace AngryKoala.Pooling
             for (int i = 0; i < _columnCount - 1; i++)
             {
                 var field = (SortField)i;
-                Texture2D background = i % 2 == 0 ? _darkTexture : _lightTexture;
+                Color background = i % 2 == 0 ? _darkColor : _lightColor;
 
                 DrawHeaderCell(GetHeaderLabel(field), field, new Rect(x, rect.y, _columnWidths[i], rect.height),
                     background);
                 x += _columnWidths[i];
             }
 
-            Rect actionsRect = new Rect(x, rect.y, _columnWidths[_columnCount - 1], rect.height);
-            GUI.DrawTexture(actionsRect, _lightTexture, ScaleMode.StretchToFill);
+            var actionsRect = new Rect(x, rect.y, _columnWidths[_columnCount - 1], rect.height);
+            EditorGUI.DrawRect(actionsRect, _lightColor);
 
-            Rect actionsLabelRect = new Rect(actionsRect.x + _headerLabelLeftPad, actionsRect.y,
-                actionsRect.width - _headerLabelLeftPad, actionsRect.height);
+            var actionsLabelRect = new Rect(actionsRect.x + _headerLabelLeftPadding, actionsRect.y,
+                actionsRect.width - _headerLabelLeftPadding, actionsRect.height);
             GUI.Label(actionsLabelRect, "Actions", _headerStyle);
         }
 
-        private void DrawHeaderCell(string label, SortField field, Rect rect, Texture2D background)
+        private void DrawHeaderCell(string label, SortField field, Rect rect, Color background)
         {
-            GUI.DrawTexture(rect, background, ScaleMode.StretchToFill);
+            EditorGUI.DrawRect(rect, background);
 
-            Rect labelRect = new Rect(rect.x + _headerLabelLeftPad, rect.y, rect.width - _headerLabelLeftPad,
+            var labelRect = new Rect(rect.x + _headerLabelLeftPadding, rect.y, rect.width - _headerLabelLeftPadding,
                 rect.height);
             GUI.Label(labelRect, label, _headerStyle);
 
@@ -465,40 +489,42 @@ namespace AngryKoala.Pooling
             {
                 GUIContent arrow = _sortAscending ? _ascendingArrowContent : _descendingArrowContent;
                 Vector2 size = _headerStyle.CalcSize(arrow);
-                Rect arrowRect = new Rect(rect.xMax - size.x - _arrowRightPad, rect.y + (rect.height - size.y) / 2f,
+                var arrowRect = new Rect(rect.xMax - size.x - _arrowRightPadding, rect.y + (rect.height - size.y) / 2f,
                     size.x, size.y);
                 GUI.Label(arrowRect, arrow, _headerStyle);
             }
         }
 
-        private void DrawRow(PoolData data)
+        private void DrawRow(RowEntry row)
         {
+            PoolData data = row.Data;
+
             Rect reserved =
                 GUILayoutUtility.GetRect(0, _rowHeight + _rowVerticalSpacing * 2f, GUILayout.ExpandWidth(true));
 
             reserved.x += _horizontalPadding;
             reserved.width -= _horizontalPadding * 2f;
 
-            Rect outer = new Rect(reserved.x, reserved.y + _rowVerticalSpacing, reserved.width, _rowHeight);
+            var outer = new Rect(reserved.x, reserved.y + _rowVerticalSpacing, reserved.width, _rowHeight);
             GUI.Box(outer, GUIContent.none, EditorStyles.helpBox);
 
-            Rect inner = new Rect(outer.x + _rowInnerPad, outer.y + _rowInnerPad, outer.width - _rowInnerPad * 2f,
-                outer.height - _rowInnerPad * 2f);
+            var inner = new Rect(outer.x + _rowInnerPadding, outer.y + _rowInnerPadding, outer.width - _rowInnerPadding * 2f,
+                outer.height - _rowInnerPadding * 2f);
 
             bool hasPrefab = data.Prefab != null;
             float x = inner.x;
 
             for (int i = 0; i < _columnCount; i++)
             {
-                Rect cell = new Rect(x, inner.y, _columnWidths[i], inner.height);
-                DrawCellBackground(cell, i % 2 == 0 ? _darkTexture : _lightTexture);
+                var cell = new Rect(x, inner.y, _columnWidths[i], inner.height);
+                EditorGUI.DrawRect(cell, i % 2 == 0 ? _darkColor : _lightColor);
 
-                Rect content = new Rect(cell.x + _cellPadX, cell.y, cell.width - _cellPadX * 2f, cell.height);
+                var content = new Rect(cell.x + _cellPaddingX, cell.y, cell.width - _cellPaddingX * 2f, cell.height);
 
                 switch (i)
                 {
                     case (int)SortField.Prefab:
-                        DrawPrefabCell(content, data, hasPrefab);
+                        DrawPrefabCell(content, row, hasPrefab);
                         break;
 
                     case (int)SortField.InUse:
@@ -531,7 +557,7 @@ namespace AngryKoala.Pooling
             }
         }
 
-        private void DrawPrefabCell(Rect content, PoolData data, bool hasPrefab)
+        private void DrawPrefabCell(Rect content, RowEntry row, bool hasPrefab)
         {
             if (!hasPrefab)
             {
@@ -539,17 +565,17 @@ namespace AngryKoala.Pooling
                 return;
             }
 
-            if (GUI.Button(content, data.Prefab.name, _prefabButtonStyle))
+            if (GUI.Button(content, row.PrefabName, _prefabButtonStyle))
             {
-                EditorGUIUtility.PingObject(data.Prefab);
+                EditorGUIUtility.PingObject(row.Data.Prefab);
             }
         }
 
         private void DrawActionsCell(Rect cell, PoolData data, bool hasPrefab)
         {
             float buttonHeight = Mathf.Max(_minimumButtonHeight, cell.height - _buttonVerticalInset);
-            Rect buttonRect = new Rect(cell.x + _actionsPad, cell.y + (cell.height - buttonHeight) * 0.5f,
-                cell.width - _actionsPad * 2f, buttonHeight);
+            var buttonRect = new Rect(cell.x + _actionsPadding, cell.y + (cell.height - buttonHeight) * 0.5f,
+                cell.width - _actionsPadding * 2f, buttonHeight);
 
             EditorGUI.BeginDisabledGroup(!EditorApplication.isPlaying || !hasPrefab);
 
@@ -586,7 +612,7 @@ namespace AngryKoala.Pooling
 
         private void SetGUIStyles()
         {
-            if (_headerStyle != null && _darkTexture != null)
+            if (_headerStyle != null)
             {
                 return;
             }
@@ -607,18 +633,6 @@ namespace AngryKoala.Pooling
 
             _ascendingArrowContent = new GUIContent("▲");
             _descendingArrowContent = new GUIContent("▼");
-
-            _darkTexture = CreateTexture(new Color(0.18f, 0.18f, 0.18f, 1f));
-            _lightTexture = CreateTexture(new Color(0.26f, 0.26f, 0.26f, 1f));
-        }
-
-        private static Texture2D CreateTexture(Color color)
-        {
-            Texture2D texture = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
-            texture.SetPixel(0, 0, color);
-            texture.Apply();
-
-            return texture;
         }
 
         private bool HasLiveService()
@@ -659,16 +673,6 @@ namespace AngryKoala.Pooling
             };
         }
 
-        private static string GetPrefabName(PoolData data)
-        {
-            return data.Prefab != null ? data.Prefab.name : string.Empty;
-        }
-
-        private static EntityId GetPrefabEntityId(PoolData data)
-        {
-            return data.Prefab != null ? data.Prefab.GetEntityId() : EntityId.None;
-        }
-
         private static int GetTotalCount(PoolData data)
         {
             return data.InUseCount + data.WaitingCount;
@@ -682,11 +686,6 @@ namespace AngryKoala.Pooling
         private static bool Contains(string text, string value)
         {
             return !string.IsNullOrEmpty(text) && text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static void DrawCellBackground(Rect rect, Texture2D texture)
-        {
-            GUI.DrawTexture(rect, texture, ScaleMode.StretchToFill);
         }
 
         #endregion

@@ -9,6 +9,9 @@ namespace AngryKoala.Pooling.Tests
         [SerializeField] private bool _throwOnRequested;
         [SerializeField] private bool _throwOnReturned;
         [SerializeField] private bool _returnSelfOnRequested;
+        [SerializeField] private float _returnDelayOnEnable;
+        [SerializeField] private bool _returnAllOnRequested;
+        [SerializeField] private TestPoolable _otherPrefabOnRequested;
 
         public int AwakeCount { get; private set; }
         public int EnableCount { get; private set; }
@@ -19,6 +22,8 @@ namespace AngryKoala.Pooling.Tests
         public Transform ParentOnEnable { get; private set; }
         public Vector3 PositionWhenRequested { get; private set; }
         public Transform ParentWhenRequested { get; private set; }
+
+        public TestPoolable RequestedOther { get; private set; }
 
         public const string ExceptionMessage = "test-callback-failure";
 
@@ -32,6 +37,11 @@ namespace AngryKoala.Pooling.Tests
             EnableCount++;
             PositionOnEnable = transform.position;
             ParentOnEnable = transform.parent;
+
+            if (_returnDelayOnEnable > 0f)
+            {
+                ServiceLocator.Get<IPoolService>().Return(this, _returnDelayOnEnable);
+            }
         }
 
         public void Configure(bool throwOnRequested, bool throwOnReturned, bool returnSelfOnRequested)
@@ -39,6 +49,21 @@ namespace AngryKoala.Pooling.Tests
             _throwOnRequested = throwOnRequested;
             _throwOnReturned = throwOnReturned;
             _returnSelfOnRequested = returnSelfOnRequested;
+        }
+
+        public void ConfigureReturnDelayOnEnable(float delaySeconds)
+        {
+            _returnDelayOnEnable = delaySeconds;
+        }
+
+        public void ConfigureReturnAllOnRequested()
+        {
+            _returnAllOnRequested = true;
+        }
+
+        public void ConfigureOtherPrefabOnRequested(TestPoolable otherPrefab)
+        {
+            _otherPrefabOnRequested = otherPrefab;
         }
 
         public void OnRequestedFromPool()
@@ -55,6 +80,16 @@ namespace AngryKoala.Pooling.Tests
             if (_returnSelfOnRequested)
             {
                 ServiceLocator.Get<IPoolService>().Return(this);
+            }
+
+            if (_otherPrefabOnRequested != null)
+            {
+                RequestedOther = ServiceLocator.Get<IPoolService>().Get(_otherPrefabOnRequested);
+            }
+
+            if (_returnAllOnRequested)
+            {
+                ServiceLocator.Get<IPoolService>().ReturnAll();
             }
         }
 

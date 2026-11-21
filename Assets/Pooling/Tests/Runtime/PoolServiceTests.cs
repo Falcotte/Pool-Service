@@ -20,12 +20,18 @@ namespace AngryKoala.Pooling.Tests
         private const float _returnDelaySeconds = 0.2f;
         private const float _waitPastDelaySeconds = 0.5f;
         private const float _longDelaySeconds = 30f;
+        private const float _secondDelaySeconds = 1f;
 
         private const int _prewarmCount = 3;
         private const int _largeCount = 20;
         private const int _prewarmAllFirstCount = 20;
         private const int _prewarmAllSecondCount = 5;
-        private const int _defaultPrewarmPerFrame = 8;
+        private const int _prewarmBatchSize = 8;
+        private const int _smallPrewarmBatchSize = 2;
+        private const int _prewarmMaximum = 5;
+        private const int _requestsBetweenBatches = 3;
+        private const int _pruneGetCount = 40;
+        private const int _pruneDestroyedCount = 30;
 
         private static readonly Vector3 _templatePosition = new(1f, 2f, 3f);
         private static readonly Vector3 _spawnPosition = new(3f, 4f, 5f);
@@ -247,6 +253,8 @@ namespace AngryKoala.Pooling.Tests
         {
             _service.Return(null);
             _service.Return(null, 1f);
+
+            LogAssert.NoUnexpectedReceived();
 
             yield return null;
         }
@@ -533,6 +541,7 @@ namespace AngryKoala.Pooling.Tests
             TestPoolable secondTemplate = CreateTemplate("SecondTemplate");
             AddSettings(_template.gameObject, _prewarmAllFirstCount, 0, PoolExhaustionRule.Grow);
             AddSettings(secondTemplate.gameObject, _prewarmAllSecondCount, 0, PoolExhaustionRule.Grow);
+            _service.SetPrewarmPerFrame(_prewarmBatchSize);
 
             var progressValues = new List<float>();
             var progressFrames = new List<int>();
@@ -544,7 +553,7 @@ namespace AngryKoala.Pooling.Tests
             }));
 
             int totalCount = _prewarmAllFirstCount + _prewarmAllSecondCount;
-            int expectedBatchCount = Mathf.CeilToInt((float)totalCount / _defaultPrewarmPerFrame);
+            int expectedBatchCount = Mathf.CeilToInt((float)totalCount / _prewarmBatchSize);
 
             Assert.That(progressValues[0], Is.EqualTo(0f));
             Assert.That(progressValues[^1], Is.EqualTo(1f));
@@ -603,6 +612,320 @@ namespace AngryKoala.Pooling.Tests
             Assert.That(other.gameObject.activeSelf, Is.False);
 
             _service.GetData(_poolData);
+
+            foreach (PoolData data in _poolData)
+            {
+                Assert.That(data.InUseCount, Is.EqualTo(0));
+                Assert.That(data.WaitingCount, Is.EqualTo(1));
+            }
+
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator Get_FreshInstance_ThatReturnsItselfFromOnEnable_IsReturnedAfterDelay()
+        {
+            _template.ConfigureReturnDelayOnEnable(_returnDelaySeconds);
+
+            TestPoolable instance = Track(_service.Get(_template));
+
+            yield return new WaitForSeconds(_waitPastDelaySeconds);
+
+            LogAssert.NoUnexpectedReceived();
+            Assert.That(instance.gameObject.activeSelf, Is.False);
+            Assert.That(instance.ReturnedCount, Is.EqualTo(1));
+            Assert.That(GetSinglePoolData().InUseCount, Is.EqualTo(0));
+        }
+
+        [UnityTest]
+        public IEnumerator PrewarmAll_WhenRequestsHappenBetweenBatches_DoesNotExceedMaximum()
+        {
+            AddSettings(_template.gameObject, _prewarmMaximum, _prewarmMaximum, PoolExhaustionRule.Grow);
+            _service.SetPrewarmPerFrame(_smallPrewarmBatchSize);
+
+            IEnumerator routine = _service.PrewarmAll();
+
+            Assert.That(routine.MoveNext(), Is.True);
+
+            for (int i = 0; i < _requestsBetweenBatches; i++)
+            {
+                Assert.That(Track(_service.Get(_template)), Is.Not.Null);
+            }
+
+            while (routine.MoveNext())
+            {
+            }
+
+            PoolData data = GetSinglePoolData();
+            Assert.That(data.InUseCount + data.WaitingCount, Is.EqualTo(_prewarmMaximum));
+
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator PrewarmAll_RunningTwiceAtOnce_EndsAtTargetNotDouble()
+        {
+            AddSettings(_template.gameObject, _prewarmAllFirstCount, 0, PoolExhaustionRule.Grow);
+
+            var firstProgress = new List<float>();
+            var secondProgress = new List<float>();
+
+            Coroutine first = _service.StartCoroutine(_service.PrewarmAll(progress => firstProgress.Add(progress)));
+            Coroutine second = _service.StartCoroutine(_service.PrewarmAll(progress => secondProgress.Add(progress)));
+
+            yield return first;
+            yield return second;
+
+            Assert.That(GetSinglePoolData().WaitingCount, Is.EqualTo(_prewarmAllFirstCount));
+            Assert.That(firstProgress, Is.Ordered);
+            Assert.That(secondProgress, Is.Ordered);
+            Assert.That(firstProgress[^1], Is.EqualTo(1f));
+            Assert.That(secondProgress[^1], Is.EqualTo(1f));
+        }
+
+        [UnityTest]
+        public IEnumerator DestroyedInUseInstances_AreDroppedWithoutGetData()
+        {
+            var instances = new List<TestPoolable>();
+
+            for (int i = 0; i < _pruneGetCount; i++)
+            {
+                instances.Add(Track(_service.Get(_template)));
+            }
+
+            for (int i = 0; i < _pruneDestroyedCount; i++)
+            {
+                Object.Destroy(instances[i].gameObject);
+            }
+
+            yield return null;
+
+            for (int i = 0; i < _pruneGetCount; i++)
+            {
+                Track(_service.Get(_template));
+            }
+
+            int aliveCount = _pruneGetCount * 2 - _pruneDestroyedCount;
+
+            Assert.That(_service.TrackedInstanceCount, Is.EqualTo(aliveCount));
+            Assert.That(GetSinglePoolData().InUseCount, Is.EqualTo(aliveCount));
+        }
+
+        [UnityTest]
+        public IEnumerator Return_WhenCallbackReturnedInstance_SkipsPoolablesThatWereNeverRequested()
+        {
+            _template.Configure(throwOnRequested: false, throwOnReturned: false, returnSelfOnRequested: true);
+
+            var childObject = new GameObject("Child");
+            childObject.transform.SetParent(_template.transform, false);
+            childObject.AddComponent<TestPoolable>();
+
+            TestPoolable instance = Track(_service.Get(_template));
+            TestPoolable child = instance.transform.GetChild(0).GetComponent<TestPoolable>();
+
+            Assert.That(instance.RequestedCount, Is.EqualTo(1));
+            Assert.That(instance.ReturnedCount, Is.EqualTo(1));
+            Assert.That(child.RequestedCount, Is.EqualTo(0));
+            Assert.That(child.ReturnedCount, Is.EqualTo(0));
+
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator Return_WhenPoolableComponentWasDestroyed_SkipsItAndStaysSilent()
+        {
+            var childObject = new GameObject("Child");
+            childObject.transform.SetParent(_template.transform, false);
+            childObject.AddComponent<TestPoolable>();
+
+            TestPoolable instance = Track(_service.Get(_template));
+            TestPoolable child = instance.transform.GetChild(0).GetComponent<TestPoolable>();
+
+            Object.Destroy(child);
+
+            yield return null;
+
+            _service.Return(instance);
+
+            LogAssert.NoUnexpectedReceived();
+            Assert.That(instance.ReturnedCount, Is.EqualTo(1));
+            Assert.That(child.ReturnedCount, Is.EqualTo(0));
+            Assert.That(instance.gameObject.activeSelf, Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator Get_ComponentTypeMissingOnInstance_ReturnsNullAndReleasesInstance()
+        {
+            TestPoolable first = Track(_service.Get(_template));
+            _service.Return(first);
+
+            Object.Destroy(first.GetComponent<BoxCollider>());
+
+            yield return null;
+
+            LogAssert.Expect(LogType.Error, new Regex("BoxCollider"));
+            BoxCollider collider = _service.Get(_template.GetComponent<BoxCollider>());
+
+            Assert.That(collider == null, Is.True);
+
+            PoolData data = GetSinglePoolData();
+            Assert.That(data.InUseCount, Is.EqualTo(0));
+            Assert.That(data.WaitingCount, Is.EqualTo(1));
+        }
+
+        [UnityTest]
+        public IEnumerator Get_WhenCachedComponentWasDestroyed_ReturnsNullAndReleasesInstance()
+        {
+            TestPoolable first = Track(_service.Get(_template));
+            _service.Return(first);
+
+            Object.Destroy(first);
+
+            yield return null;
+
+            LogAssert.Expect(LogType.Error, new Regex("TestPoolable"));
+            TestPoolable second = _service.Get(_template);
+
+            Assert.That(second == null, Is.True);
+
+            PoolData data = GetSinglePoolData();
+            Assert.That(data.InUseCount, Is.EqualTo(0));
+            Assert.That(data.WaitingCount, Is.EqualTo(1));
+        }
+
+        [UnityTest]
+        public IEnumerator Service_AfterDestroy_IgnoresCallsWithoutThrowing()
+        {
+            TestPoolable instance = Track(_service.Get(_template));
+
+            Object.Destroy(_service);
+
+            yield return null;
+
+            Assert.DoesNotThrow(() =>
+            {
+                _service.Return(instance);
+                _service.Return(instance, _returnDelaySeconds);
+                _service.ReturnAll();
+                _service.ReturnAll(_template);
+                _service.Prewarm(_template, _prewarmCount);
+                _service.GetData(_poolData);
+            });
+
+            Assert.That(_poolData.Count, Is.EqualTo(0));
+
+            LogAssert.Expect(LogType.Warning, new Regex("destroyed"));
+            Assert.That(_service.Get(_template) == null, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator ReturnDelayed_AfterEarlierReturnAndNewDelay_OnlyTheNewTimerFires()
+        {
+            TestPoolable instance = Track(_service.Get(_template));
+
+            _service.Return(instance, _returnDelaySeconds);
+            _service.Return(instance);
+
+            TestPoolable nextUse = Track(_service.Get(_template));
+            Assert.That(nextUse, Is.SameAs(instance));
+
+            _service.Return(nextUse, _secondDelaySeconds);
+
+            yield return new WaitForSeconds(_waitPastDelaySeconds);
+
+            Assert.That(nextUse.gameObject.activeSelf, Is.True);
+            Assert.That(nextUse.ReturnedCount, Is.EqualTo(1));
+
+            yield return new WaitForSeconds(_secondDelaySeconds);
+
+            Assert.That(nextUse.gameObject.activeSelf, Is.False);
+            Assert.That(nextUse.ReturnedCount, Is.EqualTo(2));
+        }
+
+        [UnityTest]
+        public IEnumerator ReturnDelayed_AfterRecycle_ReturnsOnTheNewTimer()
+        {
+            AddSettings(_template.gameObject, 0, 1, PoolExhaustionRule.RecycleOldest);
+
+            TestPoolable first = Track(_service.Get(_template));
+            _service.Return(first, _longDelaySeconds);
+
+            TestPoolable second = Track(_service.Get(_template));
+
+            Assert.That(second, Is.SameAs(first));
+            Assert.That(second.ReturnedCount, Is.EqualTo(1));
+
+            _service.Return(second, _returnDelaySeconds);
+
+            yield return new WaitForSeconds(_waitPastDelaySeconds);
+
+            Assert.That(second.gameObject.activeSelf, Is.False);
+            Assert.That(second.ReturnedCount, Is.EqualTo(2));
+        }
+
+        [UnityTest]
+        public IEnumerator ReturnDelayed_OnInstanceDestroyedFromOutside_DoesNothingAndStaysSilent()
+        {
+            TestPoolable instance = Track(_service.Get(_template));
+
+            _service.Return(instance, _returnDelaySeconds);
+            Object.Destroy(instance.gameObject);
+
+            yield return new WaitForSeconds(_waitPastDelaySeconds);
+
+            LogAssert.NoUnexpectedReceived();
+            Assert.That(GetSinglePoolData().InUseCount, Is.EqualTo(0));
+            Assert.That(_service.TrackedInstanceCount, Is.EqualTo(0));
+        }
+
+        [UnityTest]
+        public IEnumerator Callback_ThatRequestsAnotherPrefab_KeepsCountsConsistent()
+        {
+            TestPoolable otherTemplate = CreateTemplate("OtherTemplate");
+            _template.ConfigureOtherPrefabOnRequested(otherTemplate);
+
+            TestPoolable instance = Track(_service.Get(_template));
+            TestPoolable other = Track(instance.RequestedOther);
+
+            LogAssert.NoUnexpectedReceived();
+            Assert.That(other, Is.Not.Null);
+
+            _service.GetData(_poolData);
+
+            Assert.That(_poolData.Count, Is.EqualTo(2));
+            Assert.That(_poolData[0].InUseCount, Is.EqualTo(1));
+            Assert.That(_poolData[1].InUseCount, Is.EqualTo(1));
+
+            _service.ReturnAll();
+            _service.GetData(_poolData);
+
+            foreach (PoolData data in _poolData)
+            {
+                Assert.That(data.InUseCount, Is.EqualTo(0));
+                Assert.That(data.WaitingCount, Is.EqualTo(1));
+            }
+
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator Callback_ThatReturnsEverything_KeepsCountsConsistent()
+        {
+            TestPoolable otherTemplate = CreateTemplate("OtherTemplate");
+            TestPoolable other = Track(_service.Get(otherTemplate));
+
+            _template.ConfigureReturnAllOnRequested();
+
+            TestPoolable instance = Track(_service.Get(_template));
+
+            LogAssert.NoUnexpectedReceived();
+            Assert.That(instance.RequestedCount, Is.EqualTo(1));
+            Assert.That(instance.ReturnedCount, Is.EqualTo(1));
+            Assert.That(other.ReturnedCount, Is.EqualTo(1));
+
+            _service.GetData(_poolData);
+
+            Assert.That(_poolData.Count, Is.EqualTo(2));
 
             foreach (PoolData data in _poolData)
             {

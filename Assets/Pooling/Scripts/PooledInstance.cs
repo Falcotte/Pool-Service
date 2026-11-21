@@ -7,12 +7,14 @@ namespace AngryKoala.Pooling
     {
         public PrefabPool Pool { get; }
         public GameObject GameObject { get; }
-        public Component Component { get; }
         public IPoolable[] Poolables { get; }
         public LinkedListNode<PooledInstance> Node { get; }
 
+        public Component Component { get; set; }
+
         public bool IsInUse { get; set; }
         public int UseId { get; set; }
+        public int RequestedCallbackCount { get; set; }
 
         public bool HasPendingReturn { get; set; }
         public bool IsInPendingList { get; set; }
