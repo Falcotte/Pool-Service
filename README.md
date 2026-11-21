@@ -190,6 +190,7 @@ The `PoolService` object is in the scene once. Its Settings list holds the `Pool
 - A prefab without an entry has no prewarm, no maximum and the `Grow` rule.
 - `Get` parents the instance, places it, then activates it. `OnEnable` sees the new position and parent, and `OnRequestedFromPool` runs after activation.
 - `Get(prefab)` without a position uses the prefab's own position and rotation, with no parent.
+- An instance taken without a parent sits at the root of the service's scene, not the active scene. With a service that persists across scene loads, such an instance persists too until it is returned.
 - A reused instance keeps the local scale it had. The pool does not reset it.
 - A prewarmed instance is created inactive, and its `Awake` does not run until the first `Get` takes it.
 - `IPoolable` is optional. Each `IPoolable` in the instance's hierarchy, including inactive children, is called. The list is found when the instance is created.
@@ -199,13 +200,14 @@ The `PoolService` object is in the scene once. Its Settings list holds the `Pool
 - `Grow` creates instances past the maximum. The maximum still limits prewarming.
 - `ReturnNull` makes `Get` return null, and logs a warning once per pool.
 - `RecycleOldest` returns the instance that has been in use the longest, calls its `OnReturnedToPool`, and hands it out.
+- Under `RecycleOldest`, do not request the same prefab from its own `OnRequestedFromPool`. On a full pool the instance recycles itself and the calls never end.
 - `Prewarm(prefab, count)` brings the total (in use plus waiting) up to `count`, capped by the maximum. It does not add `count` more.
 - `PrewarmAll` creates the instances in batches of Prewarm Per Frame (default 8), one batch per frame. Progress is reported as 0 at the start and 1 at the end. When nothing needs creating, it reports 1 only.
 - Two `PrewarmAll` calls at once end at the target count, not twice the target.
 - A delayed return is in scaled time, belongs to one use, and is cancelled by an earlier return or by a recycle.
 - A second delayed return on the same use replaces the first delay.
 - A delay of zero or less returns the instance at once.
-- A delayed return is dropped if the service is disabled before it fires. The instance stays in use.
+- A delayed return is dropped if the service is disabled before it fires. The instance stays in use. A delayed return asked for while the service is disabled is kept and counts down once the service is enabled again.
 - `Return(null)` and `Return(null, delay)` do nothing and log nothing.
 - Returning an instance that is not in use logs a warning and does nothing.
 - Returning an object that the pool did not create logs a warning and does not destroy it.
@@ -213,6 +215,8 @@ The `PoolService` object is in the scene once. Its Settings list holds the `Pool
 - `Get<T>` with a component type the instance no longer has logs an error naming the type, releases the instance, and returns null.
 - Waiting instances are inactive children of the pool's container, named `<prefab name> Pool`, under the service. They are destroyed with the service.
 - In-use instances are parented where the caller put them, and are not destroyed with the service.
+- A pooled instance parented under another pooled instance is not returned with its parent. It goes inactive with the parent and stays in use until it is returned itself.
+- A pool is never removed. If its prefab is destroyed, the pool and its waiting instances stay until the service is destroyed.
 - After the service is destroyed, `Get` returns null with a warning. The other calls do nothing and log nothing.
 - `GetData` throws `ArgumentNullException` on a null list. It fills the list you pass, and is meant for tools.
 - Start order: the service registers itself in `Awake` through `BaseService`. Resolve it in `Start` or later, with `ServiceLocator.Get<IPoolService>()`.

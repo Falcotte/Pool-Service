@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
@@ -16,6 +17,8 @@ namespace AngryKoala.Pooling.Tests
 
         private PoolService _service;
         private TestPoolable _template;
+
+        private const string _otherSceneName = "PoolingTestOtherScene";
 
         private const float _returnDelaySeconds = 0.2f;
         private const float _waitPastDelaySeconds = 0.5f;
@@ -934,6 +937,29 @@ namespace AngryKoala.Pooling.Tests
             }
 
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator Get_WithoutParent_KeepsInstanceInServiceScene()
+        {
+            Scene serviceScene = _service.gameObject.scene;
+            Scene otherScene = SceneManager.CreateScene(_otherSceneName);
+            SceneManager.SetActiveScene(otherScene);
+
+            TestPoolable fresh = Track(_service.Get(_template));
+            Scene freshScene = fresh.gameObject.scene;
+
+            _service.Return(fresh);
+            TestPoolable reused = Track(_service.Get(_template));
+            Scene reusedScene = reused.gameObject.scene;
+
+            SceneManager.SetActiveScene(serviceScene);
+            yield return SceneManager.UnloadSceneAsync(otherScene);
+
+            Assert.That(reused, Is.SameAs(fresh));
+            Assert.That(freshScene, Is.EqualTo(serviceScene));
+            Assert.That(reusedScene, Is.EqualTo(serviceScene));
+            Assert.That(reused != null, Is.True);
         }
 
         private TestPoolable CreateTemplate(string name)
