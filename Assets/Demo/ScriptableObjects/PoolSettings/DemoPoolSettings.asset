@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd9703d163c59d64c9228d35f7f43e9f, type: 3}
+  m_Name: DemoPoolSettings
+  m_EditorClassIdentifier: AngryKoala.Pooling::AngryKoala.Pooling.PoolSettings
+  _entries:
+  - _prefab: {fileID: 7190254400157310700, guid: c78ddcfd3e211124494a4bc5ee638e80, type: 3}
+    _prewarmCount: 20
+    _maximumSize: 50
+    _exhaustionRule: 2
+  - _prefab: {fileID: 4315554712217353135, guid: 3282dfb3ed39fdf47a649459ad89bd6b, type: 3}
+    _prewarmCount: 20
+    _maximumSize: 50
+    _exhaustionRule: 2
+  - _prefab: {fileID: 4315554712217353135, guid: 40bb1e18da64f0c4ea1283eb2d2f6737, type: 3}
+    _prewarmCount: 20
+    _maximumSize: 50
+    _exhaustionRule: 2

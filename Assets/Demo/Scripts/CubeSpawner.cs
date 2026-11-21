@@ -21,6 +21,8 @@ namespace AngryKoala.Pooling.Demo
         private void Start()
         {
             _poolService = ServiceLocator.Get<IPoolService>();
+
+            StartCoroutine(_poolService.PrewarmAll());
         }
 
         private void Update()
