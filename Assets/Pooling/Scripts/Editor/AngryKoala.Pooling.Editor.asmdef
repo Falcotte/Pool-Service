@@ -1,0 +1,19 @@
+{
+    "name": "AngryKoala.Pooling.Editor",
+    "rootNamespace": "AngryKoala.Pooling",
+    "references": [
+        "AngryKoala.Pooling",
+        "AngryKoala.Services"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

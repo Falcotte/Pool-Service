@@ -1,126 +1,194 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
+using AngryKoala.Services;
 using UnityEditor;
 using UnityEngine;
-using AngryKoala.Services;
 
 namespace AngryKoala.Pooling
 {
     public sealed class PoolInspectorEditorWindow : EditorWindow
     {
-        private IPoolService _poolService;
+        private IPoolService _service;
 
-        private IDictionary _monoPoolByKey;
-        private IDictionary _objectPoolByKey;
+        private string _searchText;
 
-        private bool _autoRefresh = true;
-        private double _nextRefreshTime;
+        private bool _autoRefreshEnabled;
+        private double _nextAutoRefreshTime;
 
-        private string _monoPoolSearchText = string.Empty;
-        private string _objectPoolSearchText = string.Empty;
+        private Vector2 _scroll;
 
-        private Vector2 _leftScroll;
-        private Vector2 _rightScroll;
+        private readonly List<PoolData> _poolData = new();
+        private readonly List<RowEntry> _rows = new();
+        private readonly float[] _columnWidths = new float[_columnCount];
 
-        private readonly Dictionary<string, bool> _monoPoolFoldoutStateByKey = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, bool> _objectPoolFoldoutStateByKey = new(StringComparer.Ordinal);
+        private Comparison<RowEntry> _rowComparison;
 
-        private const double _autoRefreshInterval = 0.1;
+        private SortField _sortField;
+        private bool _sortAscending;
 
-        private const string _monoPrefKeyPrefix = "PoolInspector.Mono.";
-        private const string _objectPrefKeyPrefix = "PoolInspector.Obj.";
+        private int _poolCount;
+        private int _totalInUse;
+        private int _totalWaiting;
+        private string _summaryText = string.Empty;
 
         private static GUIStyle _headerStyle;
-        private static GUIStyle _headerLabelStyle;
-        private static GUIStyle _backgroundStyle;
+        private static GUIStyle _cellStyle;
+        private static GUIStyle _prefabButtonStyle;
+        private static GUIStyle _miniButtonStyle;
+
+        private static GUIContent _ascendingArrowContent;
+        private static GUIContent _descendingArrowContent;
+
+        private const string _autoRefreshPref = "PoolInspector.AutoRefresh";
+        private const string _searchStringPref = "PoolInspector.Search";
+        private const string _sortFieldPref = "PoolInspector.SortField";
+        private const string _sortAscendingPref = "PoolInspector.SortAscending";
+
+        private const double _autoRefreshInterval = 0.05d;
+
+        private const int _columnCount = 7;
+        private const float _prefabColumnWeight = 3f;
+        private const float _numberColumnWeight = 1f;
+        private const float _ruleColumnWeight = 1.5f;
+        private const float _actionsColumnWeight = 1.5f;
+        private const float _totalColumnWeight = _prefabColumnWeight + _numberColumnWeight * 4f + _ruleColumnWeight +
+                                                 _actionsColumnWeight;
+
+        private const float _headerHeight = 26f;
+        private const float _headerLabelLeftPadding = 10f;
+        private const float _headerSpacing = 2f;
+
+        private const float _searchInitialSpacing = 7f;
+        private const float _searchVerticalSpacing = 6f;
+
+        private const float _rowVerticalSpacing = 2f;
+        private const float _rowHeight = 28f;
+        private const float _rowInnerPadding = 4f;
+        private const float _cellPaddingX = 6f;
+        private const float _actionsPadding = 6f;
+        private const float _horizontalPadding = 12f;
+        private const float _blocksGap = 2f;
+        private const float _defaultToolbarHeight = 18f;
+        private const float _minimumButtonHeight = 18f;
+        private const float _buttonVerticalInset = 6f;
+        private const float _arrowRightPadding = 6f;
+        private const float _scrollContentExtraHeight = 9f;
+
+        private const string _missingPrefabLabel = "(missing prefab)";
+        private const string _noMaximumLabel = "None";
+
+        private static readonly Color _darkColor = new(0.18f, 0.18f, 0.18f, 1f);
+        private static readonly Color _lightColor = new(0.26f, 0.26f, 0.26f, 1f);
+
+        private enum SortField
+        {
+            Prefab,
+            InUse,
+            Waiting,
+            Total,
+            Maximum,
+            Rule
+        }
+
+        private readonly struct RowEntry
+        {
+            public PoolData Data { get; }
+            public string PrefabName { get; }
+            public EntityId PrefabEntityId { get; }
+
+            public RowEntry(PoolData data)
+            {
+                Data = data;
+                PrefabName = data.Prefab != null ? data.Prefab.name : string.Empty;
+                PrefabEntityId = data.Prefab != null ? data.Prefab.GetEntityId() : EntityId.None;
+            }
+        }
 
         private void OnEnable()
         {
-            RefreshTargets();
-            RestoreFoldoutPrefsForCurrentKeys();
+            _rowComparison = CompareRows;
 
-            _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
+            GetService();
+
+            _autoRefreshEnabled = EditorPrefs.GetBool(_autoRefreshPref, true);
+            _searchText = EditorPrefs.GetString(_searchStringPref, string.Empty);
+            _sortField = (SortField)EditorPrefs.GetInt(_sortFieldPref, (int)SortField.Prefab);
+            _sortAscending = EditorPrefs.GetBool(_sortAscendingPref, true);
+
+            _nextAutoRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
+
+            EditorApplication.update += OnEditorUpdate;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private void OnDisable()
+        {
+            EditorApplication.update -= OnEditorUpdate;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
         }
 
         [MenuItem("Angry Koala/Pooling/Pool Inspector")]
-        private static void Open()
+        private static void OpenWindow()
         {
             PoolInspectorEditorWindow window = GetWindow<PoolInspectorEditorWindow>("Pool Inspector");
 
-            window.minSize = new Vector2(1000f, 520f);
+            window.minSize = new Vector2(760f, 400f);
             window.Show();
         }
 
-        private void RefreshTargets()
+        private void GetService()
         {
-            if (Application.isPlaying && _poolService == null)
+            if (!EditorApplication.isPlaying)
             {
-                _poolService = ServiceLocator.Get<IPoolService>();
+                _service = null;
+                return;
             }
 
-            _monoPoolByKey = null;
-            _objectPoolByKey = null;
+            if (!HasLiveService())
+            {
+                ServiceLocator.TryGet(out _service);
+            }
+        }
 
-            if (_poolService == null)
+        private void OnEditorUpdate()
+        {
+            if (!EditorApplication.isPlaying)
             {
                 return;
             }
 
-            try
+            if (!HasLiveService())
             {
-                Type poolServiceType = typeof(PoolService);
-
-                FieldInfo monoPoolByKeyFieldInfo =
-                    poolServiceType.GetField("_monoPoolByKey", BindingFlags.NonPublic | BindingFlags.Instance);
-                FieldInfo objectPoolByKeyFieldInfo =
-                    poolServiceType.GetField("_objectPoolByKey", BindingFlags.NonPublic | BindingFlags.Instance);
-
-                _monoPoolByKey = monoPoolByKeyFieldInfo?.GetValue(_poolService) as IDictionary;
-                _objectPoolByKey = objectPoolByKeyFieldInfo?.GetValue(_poolService) as IDictionary;
-            }
-            catch
-            {
-                _monoPoolByKey = null;
-                _objectPoolByKey = null;
-            }
-        }
-
-        private void RestoreFoldoutPrefsForCurrentKeys()
-        {
-            _monoPoolFoldoutStateByKey.Clear();
-            _objectPoolFoldoutStateByKey.Clear();
-
-            if (_monoPoolByKey != null)
-            {
-                foreach (string key in _monoPoolByKey.Keys.Cast<string>())
-                {
-                    _monoPoolFoldoutStateByKey[key] = EditorPrefs.GetBool(_monoPrefKeyPrefix + key, false);
-                }
+                GetService();
             }
 
-            if (_objectPoolByKey != null)
-            {
-                foreach (string key in _objectPoolByKey.Keys.Cast<string>())
-                {
-                    _objectPoolFoldoutStateByKey[key] = EditorPrefs.GetBool(_objectPoolByKey + key, false);
-                }
-            }
-        }
-
-        private void Update()
-        {
-            if (!_autoRefresh || !(EditorApplication.timeSinceStartup >= _nextRefreshTime))
+            if (!_autoRefreshEnabled)
             {
                 return;
             }
 
-            RefreshTargets();
-            Repaint();
+            double now = EditorApplication.timeSinceStartup;
+            if (now >= _nextAutoRefreshTime)
+            {
+                Repaint();
+                _nextAutoRefreshTime = now + _autoRefreshInterval;
+            }
+        }
 
-            _nextRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
+        private void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            switch (state)
+            {
+                case PlayModeStateChange.EnteredPlayMode:
+                    GetService();
+                    Repaint();
+                    break;
+
+                case PlayModeStateChange.ExitingPlayMode:
+                    _service = null;
+                    Repaint();
+                    break;
+            }
         }
 
         private void OnGUI()
@@ -128,734 +196,496 @@ namespace AngryKoala.Pooling
             SetGUIStyles();
             DrawToolbar();
 
-            using (new EditorGUILayout.HorizontalScope())
+            if (!Application.isPlaying)
             {
-                float halfWidth = Mathf.Round(position.width * 0.5f);
-
-                using (new EditorGUILayout.VerticalScope(GUILayout.Width(halfWidth)))
-                {
-                    DrawSectionHeaderWithControls(
-                        "Mono Pools",
-                        ref _monoPoolSearchText,
-                        onExpandAll: () => SetFoldoutsForSide(true, true),
-                        onCollapseAll: () => SetFoldoutsForSide(true, false)
-                    );
-
-                    _leftScroll = EditorGUILayout.BeginScrollView(_leftScroll, GUILayout.ExpandHeight(true));
-                    DrawMonoPoolsPanel();
-                    EditorGUILayout.EndScrollView();
-                }
-
-                using (new EditorGUILayout.VerticalScope(GUILayout.ExpandWidth(true)))
-                {
-                    DrawSectionHeaderWithControls(
-                        "Object Pools",
-                        ref _objectPoolSearchText,
-                        onExpandAll: () => SetFoldoutsForSide(false, true),
-                        onCollapseAll: () => SetFoldoutsForSide(false, false)
-                    );
-
-                    _rightScroll = EditorGUILayout.BeginScrollView(_rightScroll, GUILayout.ExpandHeight(true));
-                    DrawObjectPoolsPanel();
-                    EditorGUILayout.EndScrollView();
-                }
-            }
-        }
-
-        private void SetGUIStyles()
-        {
-            if (_headerStyle != null && _headerLabelStyle != null && _backgroundStyle != null)
-            {
+                EditorGUILayout.HelpBox("Enter Play Mode to inspect pools.", MessageType.Info);
                 return;
             }
 
-            _headerStyle = GetGUIStyle("RL Header", new GUIStyle(EditorStyles.toolbar));
-            _headerStyle = new GUIStyle(_headerStyle)
+            if (!HasLiveService())
             {
-                padding = new RectOffset(5, 5, 5, 5),
-                margin = new RectOffset(2, 2, 6, 0),
-                stretchHeight = false
-            };
+                EditorGUILayout.HelpBox("PoolService not found in the scene.", MessageType.Warning);
+                return;
+            }
 
-            _headerLabelStyle = new GUIStyle(EditorStyles.label)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                padding = new RectOffset(0, 0, 0, 0),
-                fontStyle = FontStyle.Bold
-            };
+            GUILayout.Space(_searchInitialSpacing);
+            DrawSearch();
 
-            _backgroundStyle = GetGUIStyle("RL Background", new GUIStyle(EditorStyles.helpBox));
-            _backgroundStyle = new GUIStyle(_backgroundStyle)
+            if (Event.current.type == EventType.Layout)
             {
-                padding = new RectOffset(6, 6, 6, 6),
-                margin = new RectOffset(2, 2, 0, 2),
-                stretchHeight = false
-            };
+                RefreshRows();
+            }
+
+            GUILayout.Space(_headerSpacing);
+
+            Rect headerOuter =
+                GUILayoutUtility.GetRect(0, _headerHeight + _rowInnerPadding * 2f, GUILayout.ExpandWidth(true));
+            headerOuter.x += _horizontalPadding;
+            headerOuter.width -= _horizontalPadding * 2f;
+            GUI.Box(headerOuter, GUIContent.none, EditorStyles.helpBox);
+
+            var headerInner = new Rect(
+                headerOuter.x + _rowInnerPadding,
+                headerOuter.y + _rowInnerPadding,
+                headerOuter.width - _rowInnerPadding * 2f,
+                _headerHeight
+            );
+
+            float toolbarHeight = EditorStyles.toolbar.fixedHeight > 0f
+                ? EditorStyles.toolbar.fixedHeight
+                : _defaultToolbarHeight;
+            float searchTotalHeight = EditorGUIUtility.singleLineHeight + EditorStyles.helpBox.padding.top +
+                                      EditorStyles.helpBox.padding.bottom + _searchVerticalSpacing;
+            float headerTotalHeight = _headerHeight + _rowInnerPadding * 2f;
+            float footerHeight = toolbarHeight;
+            float viewportHeight = position.height - toolbarHeight - searchTotalHeight - headerTotalHeight -
+                                   footerHeight - _blocksGap;
+
+            if (ScrollbarVisible(_rows.Count, viewportHeight))
+            {
+                float scrollbarWidth = GUI.skin.verticalScrollbar.fixedWidth
+                                       + GUI.skin.verticalScrollbar.margin.left
+                                       + GUI.skin.verticalScrollbar.margin.right;
+
+                headerInner.width -= scrollbarWidth;
+            }
+
+            ComputeColumnWidths(headerInner.width);
+
+            DrawHeaders(headerInner);
+            GUILayout.Space(_rowVerticalSpacing);
+
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, false, false, GUILayout.ExpandWidth(true));
+
+            foreach (RowEntry row in _rows)
+            {
+                DrawRow(row);
+            }
+
+            EditorGUILayout.EndScrollView();
+
+            DrawFooter();
         }
 
         private void DrawToolbar()
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-
-            if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(70)))
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                RefreshTargets();
-                RestoreFoldoutPrefsForCurrentKeys();
-                Repaint();
+                if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(70)))
+                {
+                    Repaint();
+                }
+
+                EditorGUI.BeginDisabledGroup(!EditorApplication.isPlaying || !HasLiveService());
+
+                if (GUILayout.Button("Return All Pools", EditorStyles.toolbarButton, GUILayout.Width(110)))
+                {
+                    ReturnAllPools();
+                }
+
+                EditorGUI.EndDisabledGroup();
+
+                GUILayout.FlexibleSpace();
+
+                bool autoRefreshEnabled =
+                    GUILayout.Toggle(_autoRefreshEnabled, "Auto-refresh", EditorStyles.toolbarButton);
+                if (autoRefreshEnabled != _autoRefreshEnabled)
+                {
+                    _autoRefreshEnabled = autoRefreshEnabled;
+                    EditorPrefs.SetBool(_autoRefreshPref, _autoRefreshEnabled);
+                    _nextAutoRefreshTime = EditorApplication.timeSinceStartup + _autoRefreshInterval;
+                }
             }
-
-            GUILayout.FlexibleSpace();
-            _autoRefresh = GUILayout.Toggle(_autoRefresh, "Auto-refresh", EditorStyles.toolbarButton);
-
-            EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawSectionHeaderWithControls(string title, ref string searchText, Action onExpandAll,
-            Action onCollapseAll)
+        private void ReturnAllPools()
         {
-            const float headerHeight = 22f;
-            const float expandAllButtonWidth = 84f;
-            const float collapseAllButtonWidth = 90f;
-            const float paddingLeft = 4f;
-            const float paddingRight = 4f;
-            const float spacing = 6f;
-            const float verticalPadding = 4f;
-
-            GUILayout.Space(verticalPadding);
-
-            Rect headerRect = EditorGUILayout.GetControlRect(false, headerHeight);
-            headerRect.y = Mathf.Round(headerRect.y);
-
-            GUI.Box(headerRect, GUIContent.none, EditorStyles.helpBox);
-
-            Rect labelRect = new Rect(
-                headerRect.x + paddingLeft,
-                headerRect.y + ((headerHeight - EditorGUIUtility.singleLineHeight) * 0.5f),
-                headerRect.width - (expandAllButtonWidth + collapseAllButtonWidth + paddingLeft + paddingRight +
-                                    (spacing * 2f) + 6f),
-                EditorGUIUtility.singleLineHeight);
-
-            float buttonsY = headerRect.y + ((headerHeight - EditorGUIUtility.singleLineHeight) * 0.5f);
-
-            Rect collapseAllButton = new Rect(
-                headerRect.xMax - paddingRight - collapseAllButtonWidth,
-                buttonsY,
-                collapseAllButtonWidth,
-                EditorGUIUtility.singleLineHeight);
-
-            Rect expandAllButton = new Rect(
-                collapseAllButton.x - spacing - expandAllButtonWidth,
-                buttonsY,
-                expandAllButtonWidth,
-                EditorGUIUtility.singleLineHeight);
-
-            EditorGUI.LabelField(labelRect, title, EditorStyles.boldLabel);
-
-            if (GUI.Button(expandAllButton, "Expand all", EditorStyles.miniButton))
+            if (HasLiveService())
             {
-                onExpandAll?.Invoke();
+                _service.ReturnAll();
             }
 
-            if (GUI.Button(collapseAllButton, "Collapse all", EditorStyles.miniButton))
-            {
-                onCollapseAll?.Invoke();
-            }
+            Repaint();
+        }
 
-            GUILayout.Space(verticalPadding);
-
+        private void DrawSearch()
+        {
             using (new EditorGUILayout.HorizontalScope())
             {
-                float previousLabelWidth = EditorGUIUtility.labelWidth;
-                EditorGUIUtility.labelWidth = 54f;
+                GUILayout.Space(_horizontalPadding);
 
-                searchText = EditorGUILayout.TextField(
-                    "Search",
-                    searchText,
-                    GUILayout.ExpandWidth(true),
-                    GUILayout.Height(EditorGUIUtility.singleLineHeight));
-
-                GUILayout.Space(13);
-
-                EditorGUIUtility.labelWidth = previousLabelWidth;
-            }
-
-            GUILayout.Space(2);
-        }
-
-        private void SetFoldoutsForSide(bool isMono, bool state)
-        {
-            if (isMono)
-            {
-                if (_monoPoolByKey != null)
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    foreach (string key in _monoPoolByKey.Keys.Cast<string>())
+                    using (new EditorGUILayout.HorizontalScope())
                     {
-                        SetPoolFoldoutState(true, key, state);
-                    }
-                }
-            }
-            else
-            {
-                if (_objectPoolByKey != null)
-                {
-                    foreach (string key in _objectPoolByKey.Keys.Cast<string>())
-                    {
-                        SetPoolFoldoutState(false, key, state);
-                    }
-                }
-            }
-        }
-
-        private void SetPoolFoldoutState(bool isMono, string key, bool expanded)
-        {
-            if (isMono)
-            {
-                _monoPoolFoldoutStateByKey[key] = expanded;
-                EditorPrefs.SetBool(_monoPrefKeyPrefix + key, expanded);
-            }
-            else
-            {
-                _objectPoolFoldoutStateByKey[key] = expanded;
-                EditorPrefs.SetBool(_objectPrefKeyPrefix + key, expanded);
-            }
-        }
-
-        private void DrawMonoPoolsPanel()
-        {
-            if (!Application.isPlaying)
-            {
-                EditorGUILayout.HelpBox("The application must be in Play mode to inspect Mono Pools.",
-                    MessageType.Info);
-                return;
-            }
-
-            if (_poolService == null || _monoPoolByKey == null)
-            {
-                EditorGUILayout.HelpBox("PoolService not found in the open scenes, or reflection failed.",
-                    MessageType.Warning);
-                return;
-            }
-
-            string[] poolKeys = _monoPoolByKey.Keys.Cast<string>()
-                .Where(poolKey => ContainsSubstringIgnoreCase(poolKey, _monoPoolSearchText))
-                .OrderBy(poolKey => poolKey, StringComparer.Ordinal)
-                .ToArray();
-
-            if (poolKeys.Length == 0)
-            {
-                EditorGUILayout.HelpBox("No MonoPools registered.", MessageType.Info);
-                return;
-            }
-
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-            {
-                for (int i = 0; i < poolKeys.Length; i++)
-                {
-                    string key = poolKeys[i];
-                    MonoPool pool = _monoPoolByKey[key] as MonoPool;
-
-                    if (pool == null)
-                    {
-                        continue;
-                    }
-
-                    bool expanded = GetPoolFoldoutState(true, key);
-
-                    float headerHeight = Mathf.Max((_headerStyle.fixedHeight > 0 ? _headerStyle.fixedHeight : 20f),
-                        EditorGUIUtility.singleLineHeight + 6f);
-                    Rect headerRect = GUILayoutUtility.GetRect(1, headerHeight, GUILayout.ExpandWidth(true));
-
-                    if (Event.current.type == EventType.Repaint)
-                    {
-                        _headerStyle.Draw(headerRect, GUIContent.none, false, false, false, false);
-                    }
-
-                    float lift = -1.0f;
-
-                    float foldoutWidth = 16f;
-                    Rect foldoutRect = new Rect(
-                        headerRect.x + 6f,
-                        headerRect.y + ((headerRect.height - EditorGUIUtility.singleLineHeight) * 0.5f) + lift,
-                        foldoutWidth,
-                        EditorGUIUtility.singleLineHeight);
-
-                    bool newExpanded = EditorGUI.Foldout(foldoutRect, expanded, GUIContent.none, true);
-
-                    Rect labelRect = new Rect(
-                        foldoutRect.xMax + 4f,
-                        headerRect.y + ((headerRect.height - EditorGUIUtility.singleLineHeight) * 0.5f) + lift - 1f,
-                        headerRect.width - 12f,
-                        EditorGUIUtility.singleLineHeight);
-
-                    EditorGUI.LabelField(labelRect, $"{key} Pool", _headerLabelStyle);
-
-                    if (Event.current.type == EventType.MouseDown &&
-                        new Rect(headerRect.x, headerRect.y, headerRect.width, headerRect.height)
-                            .Contains(Event.current.mousePosition) &&
-                        Event.current.button == 0)
-                    {
-                        newExpanded = !expanded;
-                        Event.current.Use();
-                    }
-
-                    if (newExpanded != expanded)
-                    {
-                        expanded = newExpanded;
-                        SetPoolFoldoutState(true, key, expanded);
-                    }
-
-                    GUILayout.Space(-(EditorGUIUtility.standardVerticalSpacing + 2));
-
-                    if (expanded)
-                    {
-                        using (new GUILayout.VerticalScope(_backgroundStyle, GUILayout.ExpandWidth(true)))
+                        GUILayout.Label("Search:", GUILayout.Width(60));
+                        string nextSearch =
+                            EditorGUILayout.TextField(_searchText ?? string.Empty, GUILayout.MinWidth(220));
+                        if (nextSearch != _searchText)
                         {
-                            int prevIndent = EditorGUI.indentLevel;
-                            EditorGUI.indentLevel = 0;
-
-                            int available = GetPrivateCollectionCount(pool, "_availablePoolables");
-                            int active = GetPrivateCollectionCount(pool, "_activePoolables");
-                            int totalCreated = GetPrivateInt(pool, "_totalCreatedCount");
-                            int initialSize = GetPrivateInt(pool, "_initialSize");
-                            int maxSize = GetPrivateInt(pool, "_maxSize");
-
-                            GameObject pooledPrefab = GetPrivateObject<GameObject>(pool, "_prefab");
-                            Transform container = GetPrivateObject<Transform>(pool, "_container");
-
-                            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                            {
-                                EditorGUILayout.LabelField($"Pool Key: {key}");
-                            }
-
-                            GUILayout.Space(EditorGUIUtility.standardVerticalSpacing);
-
-                            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                            {
-                                EditorGUILayout.LabelField($"Available: {available}");
-                                EditorGUILayout.LabelField($"Active: {active}");
-                                EditorGUILayout.LabelField($"Total Created: {totalCreated}");
-                                EditorGUILayout.LabelField($"Initial Size: {initialSize}");
-                                EditorGUILayout.LabelField($"Max Size: {maxSize}");
-                            }
-
-                            GUILayout.Space(EditorGUIUtility.standardVerticalSpacing);
-
-                            using (new EditorGUILayout.HorizontalScope())
-                            {
-                                using (new EditorGUI.DisabledScope(pool == null))
-                                {
-                                    if (GUILayout.Button("Select Pool", GUILayout.ExpandWidth(true)))
-                                    {
-                                        Selection.activeObject = pool;
-                                        EditorGUIUtility.PingObject(pool);
-                                    }
-                                }
-
-                                using (new EditorGUI.DisabledScope(container == null))
-                                {
-                                    if (GUILayout.Button("Select Container", GUILayout.ExpandWidth(true)))
-                                    {
-                                        Selection.activeObject = container;
-                                        EditorGUIUtility.PingObject(container);
-                                    }
-                                }
-
-                                using (new EditorGUI.DisabledScope(pooledPrefab == null))
-                                {
-                                    if (GUILayout.Button("Select Pooled Prefab", GUILayout.ExpandWidth(true)))
-                                    {
-                                        Selection.activeObject = pooledPrefab;
-                                        EditorGUIUtility.PingObject(pooledPrefab);
-                                    }
-                                }
-
-                                using (new EditorGUI.DisabledScope(!Application.isPlaying))
-                                {
-                                    if (GUILayout.Button("Return All", GUILayout.ExpandWidth(true)))
-                                    {
-                                        try
-                                        {
-                                            pool.ReturnAll();
-                                        }
-                                        catch
-                                        {
-                                        }
-                                    }
-                                }
-                            }
-
-                            EditorGUI.indentLevel = prevIndent;
+                            _searchText = nextSearch;
+                            EditorPrefs.SetString(_searchStringPref, _searchText);
                         }
-
-                        GUILayout.Space(EditorGUIUtility.standardVerticalSpacing);
                     }
-                    else
-                    {
-                        const float capHeight = 5f;
-                        const float overlap = 0f;
-                        const float inset = 0f;
+                }
 
-                        Rect capRect = GUILayoutUtility.GetRect(1, capHeight, GUILayout.ExpandWidth(true));
-                        capRect = new Rect(capRect.x + inset, capRect.y - overlap, capRect.width - (inset * 2f),
-                            capRect.height + overlap);
+                GUILayout.Space(_horizontalPadding - 3f);
+            }
+        }
 
-                        if (Event.current.type == EventType.Repaint)
-                        {
-                            _backgroundStyle.Draw(capRect, GUIContent.none, false, false, false, false);
-                        }
+        private void RefreshRows()
+        {
+            _service.GetData(_poolData);
 
-                        GUILayout.Space(EditorGUIUtility.standardVerticalSpacing + 2);
-                    }
+            _rows.Clear();
+            foreach (PoolData data in _poolData)
+            {
+                _rows.Add(new RowEntry(data));
+            }
+
+            UpdateSummary();
+            FilterRows();
+            _rows.Sort(_rowComparison);
+        }
+
+        private void UpdateSummary()
+        {
+            int totalInUse = 0;
+            int totalWaiting = 0;
+
+            foreach (RowEntry row in _rows)
+            {
+                totalInUse += row.Data.InUseCount;
+                totalWaiting += row.Data.WaitingCount;
+            }
+
+            if (_rows.Count == _poolCount && totalInUse == _totalInUse && totalWaiting == _totalWaiting)
+            {
+                return;
+            }
+
+            _poolCount = _rows.Count;
+            _totalInUse = totalInUse;
+            _totalWaiting = totalWaiting;
+            _summaryText = $"Pools: {_poolCount}    In Use: {_totalInUse}    Waiting: {_totalWaiting}";
+        }
+
+        private void FilterRows()
+        {
+            if (string.IsNullOrWhiteSpace(_searchText))
+            {
+                return;
+            }
+
+            for (int i = _rows.Count - 1; i >= 0; i--)
+            {
+                if (!Contains(_rows[i].PrefabName, _searchText))
+                {
+                    _rows.RemoveAt(i);
                 }
             }
         }
 
-        private bool GetPoolFoldoutState(bool isMono, string key)
+        private int CompareRows(RowEntry left, RowEntry right)
         {
-            if (isMono)
-            {
-                if (_monoPoolFoldoutStateByKey.TryGetValue(key, out bool foldoutState))
-                {
-                    return foldoutState;
-                }
+            PoolData leftData = left.Data;
+            PoolData rightData = right.Data;
 
-                bool storedPref = EditorPrefs.GetBool(_monoPrefKeyPrefix + key, false);
-                _monoPoolFoldoutStateByKey[key] = storedPref;
-                return storedPref;
+            int result = _sortField switch
+            {
+                SortField.Prefab => string.Compare(left.PrefabName, right.PrefabName,
+                    StringComparison.OrdinalIgnoreCase),
+                SortField.InUse => leftData.InUseCount.CompareTo(rightData.InUseCount),
+                SortField.Waiting => leftData.WaitingCount.CompareTo(rightData.WaitingCount),
+                SortField.Total => GetTotalCount(leftData).CompareTo(GetTotalCount(rightData)),
+                SortField.Maximum => GetMaximumSortValue(leftData).CompareTo(GetMaximumSortValue(rightData)),
+                SortField.Rule => leftData.ExhaustionRule.CompareTo(rightData.ExhaustionRule),
+                _ => 0
+            };
+
+            if (result != 0)
+            {
+                return _sortAscending ? result : -result;
             }
-            else
+
+            result = string.Compare(left.PrefabName, right.PrefabName, StringComparison.OrdinalIgnoreCase);
+            if (result == 0)
             {
-                if (_objectPoolFoldoutStateByKey.TryGetValue(key, out bool foldoutState))
+                result = left.PrefabEntityId.CompareTo(right.PrefabEntityId);
+            }
+
+            return result;
+        }
+
+        private void ComputeColumnWidths(float totalWidth)
+        {
+            float unit = Mathf.Floor(totalWidth / _totalColumnWeight);
+
+            _columnWidths[(int)SortField.Prefab] = Mathf.Floor(unit * _prefabColumnWeight);
+            _columnWidths[(int)SortField.InUse] = unit * _numberColumnWeight;
+            _columnWidths[(int)SortField.Waiting] = unit * _numberColumnWeight;
+            _columnWidths[(int)SortField.Total] = unit * _numberColumnWeight;
+            _columnWidths[(int)SortField.Maximum] = unit * _numberColumnWeight;
+            _columnWidths[(int)SortField.Rule] = Mathf.Floor(unit * _ruleColumnWeight);
+
+            float used = 0f;
+            for (int i = 0; i < _columnCount - 1; i++)
+            {
+                used += _columnWidths[i];
+            }
+
+            _columnWidths[_columnCount - 1] = totalWidth - used;
+        }
+
+        private void DrawHeaders(Rect rect)
+        {
+            float x = rect.x;
+
+            for (int i = 0; i < _columnCount - 1; i++)
+            {
+                var field = (SortField)i;
+                Color background = i % 2 == 0 ? _darkColor : _lightColor;
+
+                DrawHeaderCell(GetHeaderLabel(field), field, new Rect(x, rect.y, _columnWidths[i], rect.height),
+                    background);
+                x += _columnWidths[i];
+            }
+
+            var actionsRect = new Rect(x, rect.y, _columnWidths[_columnCount - 1], rect.height);
+            EditorGUI.DrawRect(actionsRect, _lightColor);
+
+            var actionsLabelRect = new Rect(actionsRect.x + _headerLabelLeftPadding, actionsRect.y,
+                actionsRect.width - _headerLabelLeftPadding, actionsRect.height);
+            GUI.Label(actionsLabelRect, "Actions", _headerStyle);
+        }
+
+        private void DrawHeaderCell(string label, SortField field, Rect rect, Color background)
+        {
+            EditorGUI.DrawRect(rect, background);
+
+            var labelRect = new Rect(rect.x + _headerLabelLeftPadding, rect.y, rect.width - _headerLabelLeftPadding,
+                rect.height);
+            GUI.Label(labelRect, label, _headerStyle);
+
+            if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition) &&
+                Event.current.button == 0)
+            {
+                if (_sortField == field)
                 {
-                    return foldoutState;
+                    _sortAscending = !_sortAscending;
+                }
+                else
+                {
+                    _sortField = field;
+                    _sortAscending = true;
                 }
 
-                bool storedPref = EditorPrefs.GetBool(_objectPrefKeyPrefix + key, false);
-                _objectPoolFoldoutStateByKey[key] = storedPref;
-                return storedPref;
+                EditorPrefs.SetInt(_sortFieldPref, (int)_sortField);
+                EditorPrefs.SetBool(_sortAscendingPref, _sortAscending);
+                Event.current.Use();
+            }
+
+            if (_sortField == field)
+            {
+                GUIContent arrow = _sortAscending ? _ascendingArrowContent : _descendingArrowContent;
+                Vector2 size = _headerStyle.CalcSize(arrow);
+                var arrowRect = new Rect(rect.xMax - size.x - _arrowRightPadding, rect.y + (rect.height - size.y) / 2f,
+                    size.x, size.y);
+                GUI.Label(arrowRect, arrow, _headerStyle);
             }
         }
 
-        private void DrawObjectPoolsPanel()
+        private void DrawRow(RowEntry row)
         {
-            if (!Application.isPlaying)
-            {
-                EditorGUILayout.HelpBox("The application must be in Play mode to inspect Object Pools.",
-                    MessageType.Info);
-                return;
-            }
+            PoolData data = row.Data;
 
-            if (_poolService == null || _objectPoolByKey == null)
-            {
-                EditorGUILayout.HelpBox("PoolService not found in the open scenes, or reflection failed.",
-                    MessageType.Warning);
-                return;
-            }
+            Rect reserved =
+                GUILayoutUtility.GetRect(0, _rowHeight + _rowVerticalSpacing * 2f, GUILayout.ExpandWidth(true));
 
-            string[] keys = _objectPoolByKey.Keys.Cast<string>()
-                .Where(poolKey => ContainsSubstringIgnoreCase(poolKey, _objectPoolSearchText))
-                .OrderBy(poolKey => poolKey, StringComparer.Ordinal)
-                .ToArray();
+            reserved.x += _horizontalPadding;
+            reserved.width -= _horizontalPadding * 2f;
 
-            if (keys.Length == 0)
-            {
-                EditorGUILayout.HelpBox("No ObjectPools registered.", MessageType.Info);
-                return;
-            }
+            var outer = new Rect(reserved.x, reserved.y + _rowVerticalSpacing, reserved.width, _rowHeight);
+            GUI.Box(outer, GUIContent.none, EditorStyles.helpBox);
 
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            var inner = new Rect(outer.x + _rowInnerPadding, outer.y + _rowInnerPadding, outer.width - _rowInnerPadding * 2f,
+                outer.height - _rowInnerPadding * 2f);
+
+            bool hasPrefab = data.Prefab != null;
+            float x = inner.x;
+
+            for (int i = 0; i < _columnCount; i++)
             {
-                for (int i = 0; i < keys.Length; i++)
+                var cell = new Rect(x, inner.y, _columnWidths[i], inner.height);
+                EditorGUI.DrawRect(cell, i % 2 == 0 ? _darkColor : _lightColor);
+
+                var content = new Rect(cell.x + _cellPaddingX, cell.y, cell.width - _cellPaddingX * 2f, cell.height);
+
+                switch (i)
                 {
-                    string key = keys[i];
-                    object objectPool = _objectPoolByKey[key];
-                    if (objectPool == null)
-                    {
-                        continue;
-                    }
+                    case (int)SortField.Prefab:
+                        DrawPrefabCell(content, row, hasPrefab);
+                        break;
 
-                    bool expanded = GetPoolFoldoutState(false, key);
+                    case (int)SortField.InUse:
+                        GUI.Label(content, data.InUseCount.ToString(), _cellStyle);
+                        break;
 
-                    float headerHeight = Mathf.Max((_headerStyle.fixedHeight > 0 ? _headerStyle.fixedHeight : 20f),
-                        EditorGUIUtility.singleLineHeight + 6f);
-                    Rect headerRect = GUILayoutUtility.GetRect(1, headerHeight, GUILayout.ExpandWidth(true));
+                    case (int)SortField.Waiting:
+                        GUI.Label(content, data.WaitingCount.ToString(), _cellStyle);
+                        break;
 
-                    if (Event.current.type == EventType.Repaint)
-                    {
-                        _headerStyle.Draw(headerRect, GUIContent.none, false, false, false, false);
-                    }
+                    case (int)SortField.Total:
+                        GUI.Label(content, GetTotalCount(data).ToString(), _cellStyle);
+                        break;
 
-                    float lift = -1.0f;
+                    case (int)SortField.Maximum:
+                        GUI.Label(content, data.MaximumSize == 0 ? _noMaximumLabel : data.MaximumSize.ToString(),
+                            _cellStyle);
+                        break;
 
-                    float foldoutWidth = 16f;
-                    Rect foldoutRect = new Rect(
-                        headerRect.x + 6f,
-                        headerRect.y + ((headerRect.height - EditorGUIUtility.singleLineHeight) * 0.5f) + lift,
-                        foldoutWidth,
-                        EditorGUIUtility.singleLineHeight);
+                    case (int)SortField.Rule:
+                        GUI.Label(content, GetRuleLabel(data.ExhaustionRule), _cellStyle);
+                        break;
 
-                    bool newExpanded = EditorGUI.Foldout(foldoutRect, expanded, GUIContent.none, true);
-
-                    Rect labelRect = new Rect(
-                        foldoutRect.xMax + 4f,
-                        headerRect.y + ((headerRect.height - EditorGUIUtility.singleLineHeight) * 0.5f) + lift - 1f,
-                        headerRect.width - 12f,
-                        EditorGUIUtility.singleLineHeight);
-
-                    EditorGUI.LabelField(labelRect, $"{key} Pool", _headerLabelStyle);
-
-                    if (Event.current.type == EventType.MouseDown &&
-                        new Rect(headerRect.x, headerRect.y, headerRect.width, headerRect.height)
-                            .Contains(Event.current.mousePosition) &&
-                        Event.current.button == 0)
-                    {
-                        newExpanded = !expanded;
-                        Event.current.Use();
-                    }
-
-                    if (newExpanded != expanded)
-                    {
-                        expanded = newExpanded;
-                        SetPoolFoldoutState(false, key, expanded);
-                    }
-
-                    GUILayout.Space(-(EditorGUIUtility.standardVerticalSpacing + 2));
-                    if (expanded)
-                    {
-                        using (new GUILayout.VerticalScope(_backgroundStyle, GUILayout.ExpandWidth(true)))
-                        {
-                            int prevIndent = EditorGUI.indentLevel;
-                            EditorGUI.indentLevel = 0;
-
-                            int available = SafeGetPropertyInt(objectPool, "AvailableCount");
-                            int totalCreated = SafeGetPropertyInt(objectPool, "TotalCreated");
-                            int initialSize = GetPrivateInt(objectPool, "_initialSize");
-                            int maxSize = SafeGetPropertyInt(objectPool, "MaxSize");
-
-                            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                            {
-                                EditorGUILayout.LabelField($"Pool Key: {key}");
-                            }
-
-                            GUILayout.Space(EditorGUIUtility.standardVerticalSpacing);
-
-                            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                            {
-                                EditorGUILayout.LabelField($"Key: {key}");
-                                EditorGUILayout.LabelField($"Available: {available}");
-                                EditorGUILayout.LabelField($"Total Created: {totalCreated}");
-                                EditorGUILayout.LabelField($"Initial Size: {initialSize}");
-                                EditorGUILayout.LabelField($"Max Size: {maxSize}");
-                            }
-
-                            GUILayout.Space(2);
-
-                            using (new EditorGUILayout.HorizontalScope())
-                            {
-                                if (GUILayout.Button("Deregister", GUILayout.Width(110)))
-                                {
-                                    try
-                                    {
-                                        MethodInfo deregisterMethodInfo = typeof(PoolService).GetMethod(
-                                            "DeregisterObjectPool",
-                                            BindingFlags.Public | BindingFlags.Instance,
-                                            null,
-                                            new[] { typeof(string) },
-                                            null);
-                                        deregisterMethodInfo?.Invoke(_poolService, new object[] { key });
-
-                                        RefreshTargets();
-                                        RestoreFoldoutPrefsForCurrentKeys();
-                                    }
-                                    catch
-                                    {
-                                    }
-                                }
-
-                                GUILayout.FlexibleSpace();
-                            }
-
-                            EditorGUI.indentLevel = prevIndent;
-                        }
-
-                        GUILayout.Space(EditorGUIUtility.standardVerticalSpacing);
-                    }
-                    else
-                    {
-                        const float capHeight = 5f;
-                        const float overlap = 0f;
-                        const float inset = 0f;
-
-                        Rect capRect = GUILayoutUtility.GetRect(1, capHeight, GUILayout.ExpandWidth(true));
-                        capRect = new Rect(capRect.x + inset, capRect.y - overlap, capRect.width - (inset * 2f),
-                            capRect.height + overlap);
-
-                        if (Event.current.type == EventType.Repaint)
-                        {
-                            _backgroundStyle.Draw(capRect, GUIContent.none, false, false, false, false);
-                        }
-
-                        GUILayout.Space(EditorGUIUtility.standardVerticalSpacing + 2);
-                    }
+                    default:
+                        DrawActionsCell(cell, data, hasPrefab);
+                        break;
                 }
+
+                x += _columnWidths[i];
+            }
+        }
+
+        private void DrawPrefabCell(Rect content, RowEntry row, bool hasPrefab)
+        {
+            if (!hasPrefab)
+            {
+                GUI.Label(content, _missingPrefabLabel, _cellStyle);
+                return;
+            }
+
+            if (GUI.Button(content, row.PrefabName, _prefabButtonStyle))
+            {
+                EditorGUIUtility.PingObject(row.Data.Prefab);
+            }
+        }
+
+        private void DrawActionsCell(Rect cell, PoolData data, bool hasPrefab)
+        {
+            float buttonHeight = Mathf.Max(_minimumButtonHeight, cell.height - _buttonVerticalInset);
+            var buttonRect = new Rect(cell.x + _actionsPadding, cell.y + (cell.height - buttonHeight) * 0.5f,
+                cell.width - _actionsPadding * 2f, buttonHeight);
+
+            EditorGUI.BeginDisabledGroup(!EditorApplication.isPlaying || !hasPrefab);
+
+            if (GUI.Button(buttonRect, "Return All", _miniButtonStyle))
+            {
+                ReturnAllOfPrefab(data.Prefab);
+            }
+
+            EditorGUI.EndDisabledGroup();
+        }
+
+        private void ReturnAllOfPrefab(GameObject prefab)
+        {
+            if (prefab == null || !HasLiveService())
+            {
+                return;
+            }
+
+            _service.ReturnAll(prefab.transform);
+
+            Repaint();
+        }
+
+        private void DrawFooter()
+        {
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
+            {
+                GUILayout.Label(_summaryText, EditorStyles.miniLabel);
+                GUILayout.FlexibleSpace();
             }
         }
 
         #region Utility
 
-        private static GUIStyle GetGUIStyle(string styleName, GUIStyle fallback)
+        private void SetGUIStyles()
         {
-            GUIStyle guiStyle = GUI.skin != null ? GUI.skin.FindStyle(styleName) : null;
-            if (guiStyle != null)
+            if (_headerStyle != null)
             {
-                return guiStyle;
+                return;
             }
 
-            guiStyle = EditorGUIUtility.GetBuiltinSkin(EditorSkin.Inspector)?.FindStyle(styleName);
-            if (guiStyle != null)
+            _headerStyle = new GUIStyle(EditorStyles.boldLabel)
             {
-                return guiStyle;
-            }
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = Mathf.Max(12, EditorStyles.boldLabel.fontSize + 1)
+            };
 
-            guiStyle = EditorGUIUtility.GetBuiltinSkin(EditorSkin.Scene)?.FindStyle(styleName);
-            if (guiStyle != null)
+            _cellStyle = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleLeft };
+            _prefabButtonStyle = new GUIStyle(EditorStyles.label)
             {
-                return guiStyle;
-            }
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold
+            };
+            _miniButtonStyle = new GUIStyle(EditorStyles.miniButton) { alignment = TextAnchor.MiddleCenter };
 
-            guiStyle = EditorGUIUtility.GetBuiltinSkin(EditorSkin.Game)?.FindStyle(styleName);
-            if (guiStyle != null)
-            {
-                return guiStyle;
-            }
-
-            return fallback;
+            _ascendingArrowContent = new GUIContent("▲");
+            _descendingArrowContent = new GUIContent("▼");
         }
 
-        private static bool ContainsSubstringIgnoreCase(string stringToSearch, string substring)
+        private bool HasLiveService()
         {
-            if (string.IsNullOrEmpty(substring))
-            {
-                return true;
-            }
-
-            if (string.IsNullOrEmpty(stringToSearch))
-            {
-                return false;
-            }
-
-            return stringToSearch.IndexOf(substring, StringComparison.OrdinalIgnoreCase) >= 0;
+            return _service is UnityEngine.Object serviceObject ? serviceObject != null : _service != null;
         }
 
-        private static int GetPrivateCollectionCount(object targetObject, string fieldName)
+        private static bool ScrollbarVisible(int rowCount, float viewportHeightAvailable)
         {
-            if (targetObject == null)
-            {
-                return 0;
-            }
+            float perRow = _rowHeight + _rowVerticalSpacing * 2f;
+            float contentHeight = rowCount * perRow + _scrollContentExtraHeight;
 
-            try
-            {
-                FieldInfo fieldInfo = targetObject.GetType()
-                    .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
-                object collectionObject = fieldInfo?.GetValue(targetObject);
-                if (collectionObject == null)
-                {
-                    return 0;
-                }
-
-                // Works for Queue<T>, List (non-generic ICollection)
-                if (collectionObject is ICollection nonGeneric)
-                {
-                    return nonGeneric.Count;
-                }
-
-                // Works for HashSet<T>, ICollection<T>, IReadOnlyCollection<T> etc.
-                PropertyInfo countPropertyInfo =
-                    collectionObject.GetType().GetProperty("Count", BindingFlags.Public | BindingFlags.Instance);
-
-                if (countPropertyInfo != null && countPropertyInfo.PropertyType == typeof(int))
-                {
-                    object value = countPropertyInfo.GetValue(collectionObject);
-                    if (value is int countInt)
-                    {
-                        return countInt;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return 0;
+            return contentHeight > viewportHeightAvailable;
         }
 
-        private static int GetPrivateInt(object targetObject, string fieldName)
+        private static string GetHeaderLabel(SortField field)
         {
-            if (targetObject == null)
+            return field switch
             {
-                return 0;
-            }
-
-            try
-            {
-                FieldInfo fieldInfo = targetObject.GetType()
-                    .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
-
-                object value = fieldInfo?.GetValue(targetObject);
-                if (value is int valueInt)
-                {
-                    return valueInt;
-                }
-            }
-            catch
-            {
-            }
-
-            return 0;
+                SortField.Prefab => "Prefab",
+                SortField.InUse => "In Use",
+                SortField.Waiting => "Waiting",
+                SortField.Total => "Total",
+                SortField.Maximum => "Maximum",
+                SortField.Rule => "Rule",
+                _ => string.Empty
+            };
         }
 
-        private static T GetPrivateObject<T>(object targetObject, string fieldName) where T : UnityEngine.Object
+        private static string GetRuleLabel(PoolExhaustionRule rule)
         {
-            if (targetObject == null)
+            return rule switch
             {
-                return null;
-            }
-
-            try
-            {
-                FieldInfo fieldInfo = targetObject.GetType()
-                    .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
-                return fieldInfo?.GetValue(targetObject) as T;
-            }
-            catch
-            {
-                return null;
-            }
+                PoolExhaustionRule.Grow => "Grow",
+                PoolExhaustionRule.ReturnNull => "Return Null",
+                PoolExhaustionRule.RecycleOldest => "Recycle Oldest",
+                _ => "-"
+            };
         }
 
-        private static int SafeGetPropertyInt(object targetObject, string propertyName)
+        private static int GetTotalCount(PoolData data)
         {
-            if (targetObject == null)
-            {
-                return 0;
-            }
+            return data.InUseCount + data.WaitingCount;
+        }
 
-            try
-            {
-                PropertyInfo propertyInfo = targetObject.GetType()
-                    .GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
-                object value = propertyInfo?.GetValue(targetObject);
-                if (value is int valueInt)
-                {
-                    return valueInt;
-                }
-            }
-            catch
-            {
-            }
+        private static int GetMaximumSortValue(PoolData data)
+        {
+            return data.MaximumSize == 0 ? int.MaxValue : data.MaximumSize;
+        }
 
-            return 0;
+        private static bool Contains(string text, string value)
+        {
+            return !string.IsNullOrEmpty(text) && text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         #endregion

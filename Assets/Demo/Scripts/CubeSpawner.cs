@@ -1,50 +1,53 @@
-using UnityEngine;
-using AngryKoala.Pooling;
+using System.Collections.Generic;
 using AngryKoala.Services;
+using UnityEngine;
 
-public class CubeSpawner : MonoBehaviour
+namespace AngryKoala.Pooling.Demo
 {
-    [SerializeField] private float _spawnDelay;
-
-    private int _cubeCounter;
-    private float _spawnTimer;
-
-    private IPoolService _poolService;
-
-    private void Start()
+    public sealed class CubeSpawner : MonoBehaviour
     {
-        _poolService = ServiceLocator.Get<IPoolService>();
-    }
+        [SerializeField] private List<PoolableCube> _cubePrefabs = new();
 
-    private void Update()
-    {
-        if (_spawnTimer >= _spawnDelay)
+        [SerializeField] private float _spawnDelay;
+
+        private int _nextPrefabIndex;
+        private float _spawnTimer;
+
+        private IPoolService _poolService;
+
+        private const float _spawnHeight = 18f;
+        private const float _cubeLifetimeSeconds = 10f;
+
+        private void Start()
         {
-            if (_cubeCounter % 3 == 0)
-            {
-                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.RedCube);
-                poolableCube.transform.position = Vector3.up * 18f;
-                poolableCube.transform.rotation = Quaternion.identity;
-            }
-            else if (_cubeCounter % 3 == 1)
-            {
-                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.GreenCube);
-                poolableCube.transform.position = Vector3.up * 18f;
-                poolableCube.transform.rotation = Quaternion.identity;
-            }
-            else
-            {
-                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.BlueCube);
-                poolableCube.transform.position = Vector3.up * 18f;
-                poolableCube.transform.rotation = Quaternion.identity;
-            }
+            _poolService = ServiceLocator.Get<IPoolService>();
 
-            _cubeCounter++;
-            _spawnTimer = 0f;
+            StartCoroutine(_poolService.PrewarmAll());
         }
-        else
+
+        private void Update()
         {
             _spawnTimer += Time.deltaTime;
+
+            if (_spawnTimer < _spawnDelay || _cubePrefabs.Count == 0)
+            {
+                return;
+            }
+
+            _spawnTimer = 0f;
+
+            PoolableCube prefab = _cubePrefabs[_nextPrefabIndex];
+            _nextPrefabIndex = (_nextPrefabIndex + 1) % _cubePrefabs.Count;
+
+            if (prefab == null)
+            {
+                return;
+            }
+
+            Vector3 spawnPosition = Vector3.up * _spawnHeight;
+            PoolableCube cube = _poolService.Get(prefab, spawnPosition, Quaternion.identity);
+
+            _poolService.Return(cube, _cubeLifetimeSeconds);
         }
     }
 }

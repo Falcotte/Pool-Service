@@ -1,0 +1,16 @@
+{
+    "name": "AngryKoala.Pooling",
+    "rootNamespace": "AngryKoala.Pooling",
+    "references": [
+        "AngryKoala.Services"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
