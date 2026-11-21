@@ -1,0 +1,19 @@
+{
+    "name": "AngryKoala.Coroutines.Editor",
+    "rootNamespace": "AngryKoala.Coroutines",
+    "references": [
+        "AngryKoala.Coroutines",
+        "AngryKoala.Services"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

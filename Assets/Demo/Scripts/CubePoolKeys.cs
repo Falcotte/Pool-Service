@@ -1,6 +1,9 @@
-public static partial class PoolKeys
+namespace AngryKoala.Pooling.Demo
 {
-    public const string RedCube = "RedCube";
-    public const string BlueCube = "BlueCube";
-    public const string GreenCube = "GreenCube";
+    public static class CubePoolKeys
+    {
+        public const string RedCube = "RedCube";
+        public const string BlueCube = "BlueCube";
+        public const string GreenCube = "GreenCube";
+    }
 }

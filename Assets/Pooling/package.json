@@ -1,0 +1,13 @@
+{
+    "name": "com.angrykoala.pooling",
+    "version": "2.0.0",
+    "displayName": "Angry Koala Pooling",
+    "description": "An object pooling service for Unity: pools prefab instances by prefab, with prewarming, delayed returns and a rule for what happens when a pool is full.",
+    "unity": "6000.3",
+    "author": {
+        "name": "Angry Koala"
+    },
+    "dependencies": {
+        "com.angrykoala.services": "2.0.0"
+    }
+}

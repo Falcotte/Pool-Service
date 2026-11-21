@@ -1,5 +1,6 @@
 using UnityEngine;
 using AngryKoala.Pooling;
+using AngryKoala.Pooling.Demo;
 using AngryKoala.Services;
 
 public class CubeSpawner : MonoBehaviour
@@ -22,19 +23,19 @@ public class CubeSpawner : MonoBehaviour
         {
             if (_cubeCounter % 3 == 0)
             {
-                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.RedCube);
+                PoolableCube poolableCube = _poolService.Get<PoolableCube>(CubePoolKeys.RedCube);
                 poolableCube.transform.position = Vector3.up * 18f;
                 poolableCube.transform.rotation = Quaternion.identity;
             }
             else if (_cubeCounter % 3 == 1)
             {
-                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.GreenCube);
+                PoolableCube poolableCube = _poolService.Get<PoolableCube>(CubePoolKeys.GreenCube);
                 poolableCube.transform.position = Vector3.up * 18f;
                 poolableCube.transform.rotation = Quaternion.identity;
             }
             else
             {
-                PoolableCube poolableCube = _poolService.Get<PoolableCube>(PoolKeys.BlueCube);
+                PoolableCube poolableCube = _poolService.Get<PoolableCube>(CubePoolKeys.BlueCube);
                 poolableCube.transform.position = Vector3.up * 18f;
                 poolableCube.transform.rotation = Quaternion.identity;
             }

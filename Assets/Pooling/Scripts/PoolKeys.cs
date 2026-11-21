@@ -1,3 +1,6 @@
-public static partial class PoolKeys
+namespace AngryKoala.Pooling
 {
+    public static partial class PoolKeys
+    {
+    }
 }
